@@ -1,0 +1,35 @@
+LIBDIR=/opt/local/lib
+INCDIR=/opt/local/include
+DESTLIBDIR=.
+BINDIR=../bin
+
+FORTRAN=gfortran
+
+NETCDF=netcdff
+OPTFLAGS=-O2 -cpp -ffixed-line-length-132
+
+make_tracks.abs: make_tracks.ftn libtracks.a libtracks_tools.a tracks_cte.h
+	mkdir -p $(BINDIR)
+	$(FORTRAN) make_tracks.ftn $(OPTFLAGS) -o $(BINDIR)/make_tracks.abs -L$(DESTLIBDIR) -L$(LIBDIR) -I. -I$(INCDIR) -ltracks -ltracks_tools -l$(NETCDF)
+	rm -f make_tracks.o
+
+libtracks.a: libtracks.ftn tracks_cte.h
+	mkdir -p $(DESTLIBDIR)
+	$(FORTRAN) -c libtracks.ftn $(OPTFLAGS) -L$(LIBDIR) -I. -I$(INCDIR)
+	rm -f $(DESTLIBDIR)/libtracks.a 
+	ar rv $(DESTLIBDIR)/libtracks.a libtracks.o
+	ranlib $(DESTLIBDIR)/libtracks.a 
+	rm -f libtracks.o
+
+libtracks_tools.a: libtracks_tools.ftn tracks_cte.h
+	mkdir -p $(DESTLIBDIR)
+	rm -f $(DESTLIBDIR)/libtracks_tools.a 
+	$(FORTRAN) -c libtracks_tools.ftn $(OPTFLAGS) -L$(LIBDIR) -I. -I$(INCDIR)
+	ar rv $(DESTLIBDIR)/libtracks_tools.a libtracks_tools.o 
+	ranlib $(DESTLIBDIR)/libtracks_tools.a 
+	rm -f libtracks_tools.o
+
+mt2gmt5: mt2gmt5.ftn
+	mkdir -p $(BINDIR)
+	$(FORTRAN) $(OPTFLAGS) mt2gmt5.ftn -o $(BINDIR)/mt2gmt5 -L$(LIBDIR) -I. -I$(INCDIR) -ltracks
+	rm -f mt2gmt5.f mt2gmt5.o
