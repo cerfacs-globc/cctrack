@@ -1,0 +1,1263 @@
+#include <tracks_cte.h>
+
+c***********************************************************************
+c---- Sous-routine CALC_VCRIT
+c***********************************************************************
+      subroutine calc_vcrit(VCRIT,high_terrain,orog,vc,fvort,ni,nj)
+      implicit none
+
+      real  vcrit(ni,nj), HIGH_TERRAIN(ni,nj), orog(ni,nj)
+      real  vc
+      integer fvort, ni, nj, i, j
+
+      real srad, HIGH_TERRAIN_FACT
+
+!     Progressively inhibit finding centers over high terrain
+!     This is because MSLP is unreliable over high terrain
+!     HIGH_TERRAIN increases from 0 at and below 1000. m
+      srad=float(FVORT)*1.E3
+      HIGH_TERRAIN_FACT=1.0
+
+      do j=1,nj
+         do i=1,ni
+            
+            HIGH_TERRAIN(i,j)=HIGH_TERRAIN_FACT*
+     $           MAX(0.0,(OROG(I,J)-1000.)/300.)*
+     $           500.E3/MAX(SRAD,500.E3)
+            
+!           Ajout pour garder tout le pouvoir de nettoyage en terrain
+!           montagneux lorsque l'on abaisse vc (pour plus de details en
+!           terrain plat)
+            if ( (HIGH_TERRAIN(i,j).ne.0.0) .and. (vc.lt.2.0) ) then
+               HIGH_TERRAIN(i,j) = 2.0 - vc + HIGH_TERRAIN(i,j)
+            endif
+            
+!           Centers with (ABS(vort) < VCRIT are not counted
+!           VCRIT gets bigger over high terrain, meaning only strong 
+!           centers get counted
+            VCRIT(i,j)=(vc+HIGH_TERRAIN(i,j))/1.E5
+         end do
+      end do
+
+      end subroutine calc_vcrit
+
+c***********************************************************************
+c---- Sous-routine CENTRE
+c***********************************************************************
+      subroutine centre(found, field, i, j, isign, type, global, ni, nj)
+      integer ni, nj, i, j, global
+      real*8  field(ni,nj)
+      logical found
+      character*3 type
+
+      real*8  f_cc, f_rc, f_lc, f_cu, f_cd, f_ur, f_ul, f_dr, f_dl
+      integer fact, isign
+
+      if ( (type.eq.'min') .or. (type.eq.'MIN') ) then
+         fact=-1
+      elseif ( (type.eq.'max') .or. (type.eq.'MAX') ) then
+         fact=1
+      else
+         print*
+         print*, " Centre : type non valide", type
+         print*, " Stop..."
+         print*
+      endif
+
+      f_cc = field(i,j)     * isign * fact
+      f_rc = field(i+1,j)   * isign * fact
+      f_lc = field(i-1,j)   * isign * fact
+      f_cu = field(i,j+1)   * isign * fact
+      f_cd = field(i,j-1)   * isign * fact
+      f_ur = field(i+1,j+1) * isign * fact
+      f_ul = field(i+1,j-1) * isign * fact
+      f_dr = field(i-1,j+1) * isign * fact
+      f_dl = field(i-1,j-1) * isign * fact
+
+      if ( global .eq. 1   .and. 
+     $     i      .eq. 1 ) then
+         f_lc = field(ni,j)   * isign * fact
+         f_dr = field(ni,j+1) * isign * fact
+         f_dl = field(ni,j-1) * isign * fact
+      else if ( global .eq. 2   .and.
+     $          i      .eq. 1 ) then
+         f_lc = field(ni-1,j)   * isign * fact
+         f_dr = field(ni-1,j+1) * isign * fact
+         f_dl = field(ni-1,j-1) * isign * fact
+      end if
+
+      if ( global .eq. 1   .and.
+     $     i      .eq. ni ) then
+         f_rc = field(1,j)   * isign * fact
+         f_ur = field(1,j+1) * isign * fact
+         f_ul = field(1,j-1) * isign * fact
+      else if ( global .eq. 2   .and.
+     $          i      .eq. ni ) then
+         print*
+         print*, "Erreur: On ne doit pas inclure i=1 ET i=ni en  "
+         print*, "presence d une grille globale qui se repete... "
+         stop
+      end if
+
+      if ( f_cc .gt. f_rc  .and.
+     $     f_cc .gt. f_lc  .and.
+     $     f_cc .gt. f_cu  .and.
+     $     f_cc .gt. f_cd  .and.
+     $     f_cc .gt. f_ur  .and.
+     $     f_cc .gt. f_ul  .and.
+     $     f_cc .gt. f_dr  .and.
+     $     f_cc .gt. f_dl ) then
+
+         found = .true.
+      else
+         found = .false.
+      end if
+
+      end subroutine centre
+
+c***********************************************************************
+c---- Sous-routine FIND_CENTRE
+c***********************************************************************
+      subroutine find_centre(XPF,YPF,x,y,field,isign,type,gdid,ni,nj)
+      implicit none
+
+!     Uses cubic splines to more accurately locate centers between
+!     grid points of computational domain
+
+      real    XPF, YPF
+      real    field(ni,nj)
+      character*3 type
+      integer x, y, gdid, ni, nj, isign
+
+      real    xp, yp, xpp, ypp, vmax, ftest, pds_field, fmax, denom
+      integer ier, gdxysval, fact
+      integer ipass, ii, jj
+
+      if ( (type.eq.'min') .or. (type.eq.'MIN') ) then
+         fact=-1
+      elseif ( (type.eq.'max') .or. (type.eq.'MAX') ) then
+         fact=1
+      else
+         print*
+         print*, " Find_Centre : type non valide", type
+         print*, " Stop..."
+         print*
+      endif
+
+      XPP=FLOAT(x)
+      YPP=FLOAT(y)
+      FMAX=-1.E30
+      DENOM=1.
+      DO IPASS=1,2
+         DENOM=2.*DENOM
+         DO II=2,4
+            DO JJ=2,4
+               XP=XPP+FLOAT(II-3)/DENOM
+               YP=YPP+FLOAT(JJ-3)/DENOM
+               ier = gdxysval(gdid, PDS_FIELD, field, xp, yp, 1)
+               FTEST=PDS_FIELD*isign*fact
+               IF(FTEST.GT.FMAX) THEN
+                  FMAX=FTEST
+                  XPF=XP
+                  YPF=YP
+               ENDIF
+            END DO
+         END DO
+         XPP=XPF
+         YPP=YPF
+      END DO
+
+      end subroutine find_centre
+
+c***********************************************************************
+c---- Sous-routine CALC_CIRC
+c***********************************************************************
+      subroutine calc_circ(TCIRC,tlat,tlon,tvort,vort,ic,ihem,
+     $     gdid,ni,nj,nc)
+      implicit none
+
+c     For each center found, work out its circulation
+c     First, we need to define the boundary of the area 
+c     to do the circulation calculation
+
+      integer ni,nj,ihem,gdid,nc
+      real    TCIRC,tlat(nc),tlon(nc),tvort
+      real    vort(ni,nj)
+
+      LOGICAL INS
+
+      real    BLAT(NC,NC),BLON(NC,NC)
+
+      real    area, tarea, tarea_20, xc, yc, xp, yp
+      real    tdist, tdaz, tdist_min, drad, vthr, bdd
+      real    daz_diff_min, radius, darea, darea_1, darea_2
+      real    ffvort, vch, fvort_prev, rad_test, rad_bound, rad_lim
+      real    rad_prev, blatt, blonn, fcirc, sslat, sslon
+      real    ni_f, nj_f , pi
+      real    PDS_VORT
+      real    theta
+
+      integer itt, icc_t, ier, gdxysval, gdxyfll
+      integer ICL(NC)
+      integer ntheta, itheta, ncl, icc, nclose, idtheta
+      integer it, itc, ir, ic
+      
+      real    XDRAW(NC),YDRAW(NC),rvort(nc)
+     
+      PI=K_PI
+
+c     See if close to another center. We need that to check 
+c     later for overlapping areas
+      TDIST_MIN=3500.E3
+      NCL=0
+      IF(IC.GE.2)THEN
+         DO ICC=1,IC-1
+            CALL GCPAZD(TLAT(ICC),TLON(ICC),TLAT(IC),TLON(IC),
+     $           TDAZ,TDIST)
+            IF(TDIST.LT.TDIST_MIN) THEN
+               NCL=NCL+1
+               ICL(NCL)=ICC
+            ENDIF
+         END DO
+      ENDIF
+      NCLOSE=NCL                !number of close centers
+      
+C     set some constants
+      DRAD=1.0
+      IDTHETA=20
+C     initialise AREA and FCIRC for inner points
+      AREA=PI*DRAD**2/4.
+      TAREA_20=AREA
+      TAREA=AREA
+c     FCIRC=1.E-5*TVORT(IC)*AREA
+!     TCIRC(IC)=TVORT(IC)*AREA
+      TCIRC=TVORT*AREA
+
+c     move azimuthally around polar grid 360 deg
+c     actually go around a bit further - this helps the smoothing of 
+c     the boundary
+c     ignore for circulation calculation after IT > NTHETA
+      NTHETA=0
+      DO ITHETA=IDTHETA,360,IDTHETA
+         NTHETA=NTHETA+1
+      END DO
+      
+c     counters
+      IT=0                      ! counts azimuth
+      ITC=0
+      DO ITHETA=-IDTHETA,360,IDTHETA
+         IT=IT+1
+         IF(ITHETA.GE.IDTHETA)ITC=ITC+1
+         THETA=FLOAT(ITHETA)
+         RAD_TEST=99.
+C     RAD_LIM is the radius to start looking outward from 
+         RAD_LIM=5.0
+C     VTHR=0.05*1000.E3/SRAD
+         VTHR=0.0
+         DAZ_DIFF_MIN=999.
+               
+C     Step radially outward 
+         IR=0
+         RADIUS=0.0
+         DO WHILE (RAD_TEST.EQ.99.)
+            RADIUS=RADIUS+DRAD
+            IR=IR+1
+c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
+            DAREA_1=2.*PI*(RADIUS-DRAD)**2*FLOAT(IDTHETA)/360.
+            DAREA_2=2.*PI*RADIUS**2*FLOAT(IDTHETA)/360
+            DAREA=DAREA_2-DAREA_1
+            CALL GCPMOV(TLAT(IC),TLON(IC),SSLAT,SSLON,THETA,
+     $           RADIUS*1.111E5)
+            ier= gdxyfll(gdid, XP, YP, sslat, sslon, 1)
+                  
+C     See if <20° lat
+            ni_f=1.0*nj
+            nj_f=1.0*ni
+            IF( (ABS(SSLAT).GT.21.) .and. (yp.ge.1.) .and.
+     $           (xp.ge.1.) .and. (yp.le.nj_f) .and.
+     $           (xp.le.ni_f) ) then
+               ier = gdxysval(gdid, PDS_VORT, vort, xp, yp, 1)
+               TAREA_20=TAREA_20+DAREA
+            ELSE
+               RAD_TEST=RADIUS		          
+            ENDIF
+            FFVORT=PDS_VORT
+            RVORT(IR)=FFVORT
+            TAREA=TAREA+DAREA
+            
+c     See if FFVORT < 0
+            IF (RADIUS.GE.RAD_LIM.AND.FFVORT.LT.0.0) then 
+               RAD_TEST=RADIUS-DRAD
+            endif
+            
+c     See vort increasing more than VTHR - 
+c     dont start looking until RADIUS > RAD_LIM
+            VCH=FVORT_PREV-FFVORT ! should be positive decr outward
+            IF(RADIUS.GE.RAD_LIM.AND.VCH.LT.VTHR) then
+               RAD_TEST=RADIUS-DRAD
+            endif
+            
+C     See if inside another cyclone's domain	
+            IF (RADIUS.GE.RAD_LIM.AND.
+     $           IC.GT.1.AND.
+     $           NCLOSE.GT.0.AND.
+     $           RAD_TEST.EQ.99.) THEN !already done one azimuth circle
+               DO NCL=1,NCLOSE
+                  ICC_T=ICL(NCL)
+                  INS=.FALSE.
+                  DO ITT=1,NTHETA
+                     ier= gdxyfll(gdid, XDRAW(ITT), 
+     $                    YDRAW(ITT), BLAT(ITT,ICC_T), 
+     $                    BLON(ITT,ICC_T), 1)
+                  END DO
+                  CALL INSIDE(XDRAW,YDRAW,NTHETA,XP,YP,INS,XC,YC)
+                  IF(INS)RAD_TEST=RADIUS-DRAD
+               END DO
+            ENDIF
+            FVORT_PREV=FFVORT
+         END DO                 !radial loop
+         
+C     Boundary is RAD_TEST
+         RAD_BOUND=RAD_TEST
+C     Boundary radius can only change by BDD per azimuth step
+         BDD=NINT(RAD_PREV*FLOAT(IDTHETA)/60.)*DRAD
+         IF(DAZ_DIFF_MIN.GT.45.0.AND.IT.GT.1)THEN
+            IF((RAD_BOUND-RAD_PREV).GT.BDD)RAD_BOUND=RAD_PREV+BDD
+            IF((RAD_PREV-RAD_BOUND).GT.BDD)RAD_BOUND=RAD_PREV-BDD
+         ENDIF
+         RAD_PREV=RAD_BOUND
+C     Compute blat blon at boundary
+         CALL GCPMOV(TLAT(IC),TLON(IC),BLATT,BLONN,THETA,
+     $        RAD_BOUND*1.111E5)
+               
+C     Compute circulation out to this boundary
+         IF(ITC.GT.0)THEN
+            IR=0
+            FCIRC=0
+c     DO RADIUS=NINT(DRAD),NINT(RAD_BOUND),NINT(DRAD)
+            DO RADIUS=DRAD,RAD_BOUND,DRAD
+               IR=IR+1
+c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
+               DAREA_1=2.*PI*(RADIUS-DRAD)**2*FLOAT(IDTHETA)/360.
+               DAREA_2=2.*PI*RADIUS**2*FLOAT(IDTHETA)/360
+               DAREA=DAREA_2-DAREA_1
+               
+c     FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)*1.E-5	  
+               FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)
+            END DO
+            BLAT(ITC,IC)=BLATT
+            BLON(ITC,IC)=BLONN
+         ENDIF
+!     TCIRC(IC)=TCIRC(IC)+FCIRC
+         TCIRC=TCIRC+FCIRC
+      END DO                    ! azimuthal loop
+!     TCIRC(IC)=1.2345E10* TCIRC(IC)
+      TCIRC=1.2345E10* TCIRC
+c     TCIRC(IC)=1.E-7*1.2345E10*FCIRC*TAREA/TAREA_20    !normalize
+            
+      end subroutine calc_circ
+
+c***********************************************************************
+c---- Sous-routine CYCLONE_CLASS
+c***********************************************************************
+      subroutine cyclone_class(ClASS, b, maxqr, maxdz, maxwind, td_wind, 
+     $     bcrit)
+      implicit none
+
+      real    class, b, maxqr, maxdz, maxwind, td_wind, bcrit
+
+      integer cat
+
+      if (  (maxqr .gt. 0.0) .and. (maxdz .gt. 0.0) ) then 
+      
+         if (b .lt. bcrit ) then
+            if (maxwind .lt. td_wind) cat = -2
+            if (maxwind .ge. td_wind .and. maxwind .lt. 34.) cat = -1
+            if (maxwind .ge. 34. .and. maxwind .lt. 64.) cat = 0
+            if (maxwind .ge. 64. .and. maxwind .le. 82.5 ) cat = 1
+            if (maxwind .gt. 82.5 .and. maxwind .le. 95.5 ) cat = 2
+            if (maxwind .gt. 95.5 .and. maxwind .le. 113.5 ) cat = 3
+            if (maxwind .gt. 113.5 .and. maxwind .le. 135. ) cat = 4
+            if (maxwind .gt. 135. ) cat = 5
+            class = 10.0 + float(cat)   ! entre 8 et 15
+         else
+            class = 5.0        ! En transition E-T / Hybride
+         end if
+
+      else
+
+         if (b .lt. bcrit ) then
+            class = 7.0        ! Remnant ou cyclone E-T occlus, 
+                               ! impossible de departager avec 
+                               ! les criteres dispo
+                               ! dans cette sous-routine
+         else
+            class = 0.0        ! Cyclone Extra-Tropical
+         end if
+
+      end if
+
+      end subroutine cyclone_class
+
+c*********************************************************************** 
+c---- Sous-routine BAROCLINE
+c*********************************************************************** 
+      subroutine barocline(B, hl, utl, vtl, c_i, c_j, c_lat, c_lon, 
+     $     radius, lat, lon, dx, dy, ni, nj)
+
+      integer ni, nj, c_i, c_j
+
+      real    hl(ni,nj), utl(ni,nj), vtl(ni,nj)
+      real    lat(ni,nj), lon(ni,nj)
+      real    c_lat, c_lon
+
+      real    utl_mean, vtl_mean, uvtl_spd, uvtl_dir
+      real    radius, maxwind, bcrit, b
+
+!     hl doit etre en DAM !
+!     B est en METRE      !
+
+!     Critere de baroclinicite (B) tel que defini par 
+!     M. R. Sinclair, 1994 : "Extratropical Transition of Southwest 
+!     Pacific Tropical Cyclones. Part II: Midlatitude Circulation 
+!     Characterisitcs", Mon. Wea. Rev., 132, p. 2149.
+
+!     On moyenne le vent thermique sur un rayon de 500 km autour du centre
+      call surround_mean(utl_mean, c_i, c_j, c_lat, c_lon, 
+     $     utl, radius, dx, dy, lat, lon, ni, nj)
+      call surround_mean(vtl_mean, c_i, c_j, c_lat, c_lon,
+     $     vtl, radius, dx, dy, lat, lon, ni, nj)
+
+!     Direction (p/r a la grille ) du vent thermique moyen
+      call UVTOSD(utl_mean, vtl_mean, uvtl_spd, uvtl_dir)
+
+!     On calcule le terme de baroclinicite B
+!         B = moy_cote_chaud(DZ) - moy_cote_froid(DZ)
+!         Rappel : Le secteur chaud (froid) est du cote droit (gauche)
+!                  du vent thermique
+
+      call surround_wc_mean(warm, cold, c_i, c_j,
+     $     c_lat, c_lon, hl, radius, uvtl_dir,
+     $     dx, dy, lat, lon, ni, nj)
+
+      if (warm .ne. 0.0 .and. cold .ne. 0.0) then
+         B = (warm - cold) * 10.0
+      else
+         B = 0.0
+      end if
+
+      end subroutine barocline
+
+c***********************************************************************
+c---- Sous-routine CORE_STRUCT
+c***********************************************************************
+      subroutine core_struct(VTL, VTU, h3d, nivp, c_i, c_j, c_lat, 
+     $     c_lon, radius, lat, lon, dx, dy, ni, nj, nkh)
+      implicit none
+
+      integer ni, nj, nkh, c_i, c_j
+
+      real    vtl, vtu, radius, c_lat, c_lon
+      real    h3d(ni,nj,nkh)
+      real    lat(ni,nj), lon(ni,nj), dx(ni,nj), dy(ni,nj)
+
+      integer nivp(nkh)
+
+      real    min, max
+      real    dzh(nkh)
+
+      integer k, k_300, k_600, k_900, nk
+
+!     h3d doit etre en DAM !
+
+!     Calcul des parametres VT_L et VT_U tel que defini par:
+!     R. E. Hart, 2003 : "A cyclone phase space derived from thermal
+!     wind and thermal asymmetry", MWR, 131, p.592-593." 
+!     See Equations (3), (5) and (6) in the above paper.
+
+      do k = 1, nkh
+         call surround_minmax(min, max, c_i, c_j,
+     $        c_lat, c_lon, h3d(:,:,k), radius,
+     $        dx, dy, lat, lon, ni, nj)
+         dzh(k) = max - min
+      end do
+
+!     On calcule -V_t(U) : i.e. del DZ / del lnP 300-600 hPa
+      k_300 = 1
+      k_600 = 7
+      nk = k_600 - k_300 + 1
+      call linfit(VTU,dzh(k_300:k_600)*10.0,
+     $              log(nivp(k_300:k_600)*100.0),nk)
+
+!     On calcule -V_t(L) : i.e. del DZ / del lnP 600-900 hPa
+      k_600 = 7
+      k_900 = 13
+      nk = k_900 - k_600 + 1
+      call linfit(VTL,dzh(k_600:k_900)*10.0,
+     $              log(nivp(k_600:k_900)*100.0),nk)
+
+      end subroutine core_struct
+
+c***********************************************************************
+c---- Sous-routine ESTIM_POSITION
+c***********************************************************************
+      subroutine estim_position(PLAT_EST, PLON_EST, P_EST, V_EST, it, 
+     $     cu, cv, clat, clon, cpress, cvort, nn, n_incr, nt, nc)
+      implicit none
+
+      real    plat_est, plon_est, p_est, v_est
+      real    CLAT(NT,NC), CLON(NT,NC), CVORT(NT,NC), CPRESS(NT,NC)
+      real    CU(NT,NC), CV(NT,NC)
+
+      integer it, nt, nc, n_incr
+
+      real    speed_fact, dd, ff, daz_av, dist_av, x_av, y_av
+      real    wm, daz_prev, daz_est, x_est, y_est
+      real    dist_est, x_prev, y_prev, dist_prev
+      real    pmax, wp, wv, degtor
+
+      integer n24, nn, nprev, ndif
+
+      SPEED_FACT=FLOAT(N_INCR)/12. ! normalisation sur 12h
+      WP=0.55**SPEED_FACT          ! facteur pour pression estimee
+      WV=0.65**SPEED_FACT          ! facteur pour tourbillon estimee
+      N24=NINT(24./FLOAT(N_INCR))  ! donnees par 24h
+
+c     On determine le centre du cercle de recherche
+c     (i.e. le position estimee du centre au pas de temps courant)
+
+c  1) Estimation basee sur le vent a 500hPa
+      dd=0.0
+      degtor=K_DEGTOR   !PI/180.0
+      
+      IF(CU(NN,IT).NE.0.0.OR.CV(NN,IT).NE.0.0) then
+         DD=ATAN2(CU(NN,IT),CV(NN,IT))/degtor+180.0
+      endif
+
+      IF(dd.LT.0.0) dd=dd+360.0 
+      IF(dd.GT.360.0) dd=dd-360.0
+
+      
+      ff=SQRT(CU(NN,IT)*CU(NN,IT)+CV(NN,IT)*CV(NN,IT))
+
+      DAZ_AV=DD+180.
+      IF(DAZ_AV.GT.360.)DAZ_AV=DAZ_AV-360.
+      
+      DIST_AV=SPEED_FACT*FF*4.32E4 ! 4.32E4 = nbr secondes sur 12 h
+
+      X_av =-1.0*DIST_av*SIN(DAZ_av*degtor)
+      Y_av=-1.0*DIST_av*COS(DAZ_av*degtor)
+      
+c  2) Modification de (1) par l'estimation basee sur le deplacement
+c     anterieur du cyclone
+      IF(NN.GT.1) THEN
+         NPREV=MAX(1,NN-N24)
+         WM=0.70**SPEED_FACT    ! plus n_incr est petit, 
+                                ! plus wm tend vers 1
+         NDIF=NN-NPREV
+         CALL GCPAZD(CLAT(NPREV,IT),CLON(NPREV,IT),CLAT(NN,IT),
+     $        CLON(NN,IT),DAZ_PREV,DIST_PREV)
+
+         X_PREV =-1.0*DIST_PREV*SIN(DAZ_PREV*degtor)
+         Y_PREV=-1.0*DIST_PREV*COS(DAZ_PREV*degtor)
+         X_EST=WM*X_PREV/FLOAT(NDIF)+(1.-WM)*X_AV
+         Y_EST=WM*Y_PREV/FLOAT(NDIF)+(1.-WM)*Y_AV
+         P_EST=CPRESS(NN,IT)+WP*(CPRESS(NN,IT)-CPRESS(NN-1,IT))
+         V_EST=CVORT(NN,IT)+WV*(CVORT(NN,IT)-CVORT(NN-1,IT))
+      ELSE                      ! IF(NN.EQ.1) then   ! start of new track
+         X_PREV=0.0
+         Y_PREV=0.0
+         X_EST=X_AV             !based on 500hPa wind only
+         Y_EST=Y_AV             !based on 500hPa wind only 
+         P_EST=CPRESS(NN,IT)	!just use previous
+         V_EST=CVORT(NN,IT)     !just use previous
+      ENDIF
+
+      DAZ_EST=0.0
+      IF(X_EST.NE.0.0.OR.Y_EST.NE.0.0) then
+         DAZ_EST=ATAN2(X_EST,Y_EST)/degtor+180.0
+      endif
+      IF(DAZ_EST.LT.0.0) then
+         DAZ_EST=DAZ_EST+360.0
+      endif
+      IF(DAZ_EST.GT.360.0) then
+         DAZ_EST=DAZ_EST-360.0
+      endif
+      DIST_EST=SQRT(X_EST*X_EST+Y_EST*Y_EST)
+      
+c     Calcul du lat-lon de la position estimee
+      if (DIST_EST.eq.0.E0) then 
+         PLAT_EST=CLAT(NN,IT)
+         PLON_EST=CLON(NN,IT)-360.
+      else
+         CALL GCPMOV(CLAT(NN,IT),CLON(NN,IT),PLAT_EST,PLON_EST,
+     $        DAZ_EST,DIST_EST)
+      endif
+      
+      end subroutine estim_position
+
+c***********************************************************************
+c---- Sous-routine EVAL_PROB
+c***********************************************************************
+      subroutine eval_prob(PROB, plat_est, plon_est, p_est, 
+     $     v_est, tlat, tlon, tvort, tpress, clat, clon, dist_crit, 
+     $     vort_c, ic, it, nn, n_incr, ncc, nc, nt)
+      implicit none
+
+!     On tente d'associer les centres du temps present
+!     a la trajectoire en cours d'etude
+
+      real    prob, plat_est, plon_est, p_est, v_est, dist_crit
+      real    TLAT(NCC), TLON(NCC), TVORT(NCC), TPRESS(NCC)
+      REAL    CLAT(NT,NC),CLON(NT,NC)
+      integer ic, it, nn, ncc, nc, nt, n_incr
+
+      logical vort_c
+
+      real    tdist, tdaz, dist_critm
+      real    ddir, speed1, speed2
+
+      logical PASS
+
+      prob=-999.
+
+      CALL GCPAZD(PLAT_EST,PLON_EST,TLAT(IC),TLON(IC),TDAZ,TDIST)
+      
+c     Examine all CENTERs within DIST_CRIT of predicted next track position
+c     and assign probability of association
+      if ( NN.gt.1) then
+         DIST_CRITM=DIST_CRIT
+      else
+         DIST_CRITM=1.25*DIST_CRIT
+      endif
+
+      TDIST=TDIST/1.11E5
+      
+      IF(TDIST.LT.DIST_CRITM)THEN
+c     Nouveau critere base sur le changement de direction
+         if ( (NN.gt.1) .and. (abs(TLAT(IC)).lt.85.0) )then
+            call diffdir(DDIR,SPEED1,SPEED2,CLAT,CLON,NN,IT,
+     $           NT,NC,TLAT(IC),TLON(IC),n_incr)
+            
+            if(ddir.lt.85.0)then
+               pass=.true.
+            elseif(speed1.lt.25.0)then
+               pass=.true.
+            elseif((speed1.lt.50.0).and.(ddir.lt.145.0)) then
+               pass=.true.
+            else
+               print*,"diffdir reject",ddir,speed1,speed2
+               pass=.false.
+            endif
+         else
+            PASS=.true.
+         endif
+         
+         IF(PASS)THEN
+            call calc_prob(prob,tdist,dist_critm,VORT_C,
+     $           TVORT(IC),V_EST,TPRESS(IC),P_EST,ddir,
+     $           speed1,NN,n_incr)
+         ENDIF
+         
+      ENDIF
+
+      end subroutine eval_prob
+
+c***********************************************************************
+c---- Sous-routine PROB
+c***********************************************************************
+      subroutine calc_prob(PROB,tdist,dist_crit,vort_c,tvort,v_est,
+     $     tpress,p_est,ddir,speed,nn,tstep)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Nouvelle formulation - JF Caron - Octobre 2010           -
+c     ----------------------------------------------------------
+
+      real prob,tdist,dist_crit,tvort,v_est,tpress,p_est,ddir
+      real vdist_crit,vdist,pv_sq,pdist,pdist_crit,ddir_crit
+      real speed,speed_fact
+      real probi,probd,probt
+      logical vort_c
+      integer nn,tstep,ic
+
+c     On evalue la probabilite d'association entre le centre trouve
+c     dans le cercle de recherche et la trajectoire en cours de
+c     contruction.
+c
+c     Evaluation basee sur: 
+c       1) la distance entre le centre trouve et le centre de recherche
+c       2) la difference entre l'estimation de l'intensite du centre
+c          de pression (ou de tourbillon) et l'intensite du centre trouve 
+c       3) le changement de direction implique par le centre trouve
+
+      PROBD=1.0-(TDIST/DIST_CRIT)**2 ! critere #1
+
+      IF(NN.GT.1)then
+         
+         IF(VORT_C)THEN
+            if(tstep.eq.3)then
+               VDIST_CRIT=1.33E5 ! s-1
+            else
+               VDIST_CRIT=2.0E5
+            endif
+            VDIST=(TVORT-V_EST)/VDIST_CRIT
+            PV_SQ=VDIST**2
+         ELSE
+            if(tstep.eq.3)then
+               PDIST_CRIT=5.    ! hPa
+            else
+               PDIST_CRIT=10.
+            endif
+            PDIST=(TPRESS-P_EST)/PDIST_CRIT
+            PV_SQ=PDIST**2
+         ENDIF
+         
+         PROBI=1.0-PV_SQ        ! critere #2
+
+c          if (speed.lt.(25.0-10.0)) then
+         ddir_crit=180.0        ! degree
+c          elseif (speed.lt.(50.0-20.0)) then
+c             ddir_crit=145.0 
+c          else
+c             ddir_crit=85.0
+c          endif
+
+         PROBT=1.0-(DDIR/DDIR_CRIT)**2
+
+         PROB=(PROBD+PROBI+PROBT)/3.0
+
+      else
+
+         PROB=PROBD
+
+      endif
+
+      IF(prob.lt.0.0) then
+         print*,"On force prob > 0"
+         print*,"tdist     : ",TDIST
+         print*,"dist_crit : ",DIST_CRIT
+         IF(VORT_C)THEN
+            print*,"vdist     : ",VDIST_CRIT
+         else
+            print*,"pdist     : ",PDIST_CRIT
+         endif
+         print*,"probd     : ",probd
+         print*,"probi     : ",probi
+         print*,"probt     : ",probt
+         print*,"prob      : ",prob
+         prob=0.01
+      endif
+      
+      end subroutine calc_prob
+
+c***********************************************************************
+c---- Sous-routine MACTH_CENTER
+c***********************************************************************
+      subroutine match_center(ICM, TUSED, CUSED, pmn, itm, 
+     $     n_matches, ncc, nc, nt)
+      implicit none
+
+      real      PMN(NCC,NT)
+      logical   TUSED(NT),CUSED(NCC)
+      integer   ICM(NCC),ITM(NCC)
+      integer   n_matches, nt, nc, ncc
+
+      real    pmax, psum, psum_save
+
+      integer it, itt, nn, nggg, ic, i
+      integer ig, im, ngg, n_groups, ngp, ig_t, ngg_t, nn_t
+      integer ic_t, it_t, ig_found, ig_match, n2, ng_s, n_perm_groups
+      integer ig_perm_save, ig_perm, n1, idef, itdd, itff
+
+      integer NG(NT),ICG(NC,NT),ITG(NC,NT)
+      integer IORDER(9,362880)
+
+      LOGICAL FOUND
+
+      IG=0
+      DO IM=1,N_MATCHES	
+         IC=ICM(IM)
+         IT=ITM(IM)
+         ITM(IM)=0
+         ICM(IM)=0
+         FOUND=.FALSE.
+         DO I=1,IG              !loop thru groups thus far
+            NGG=NG(I)
+            DO NN=1,NGG
+               IF (IC.EQ.ICG(I,NN).AND.IT.EQ.ITG(I,NN)) then
+                  STOP 'two groups same'
+               end if
+               IF(.NOT.FOUND.AND.(IC.EQ.ICG(I,NN).OR.IT.EQ.ITG(I,NN)))
+     $              THEN
+                  FOUND=.TRUE.
+                  NG(I)=NG(I)+1
+                  ICG(I,NG(I))=IC
+                  ITG(I,NG(I))=IT
+               ENDIF
+            END DO	
+         END DO
+         IF(.NOT.FOUND) THEN    !start a new group
+            IG=IG+1      
+            NG(IG)=1
+            ICG(IG,1)=IC
+		ITG(IG,1)=IT
+             ENDIF
+	  END DO                !IM=1,N_MATCHES
+	  N_GROUPS=IG
+c     Merge groups with elements in common
+ 200	  NGP=N_GROUPS
+	  DO IG=1,NGP-1
+             NGG=NG(IG)
+             DO NN=1,NGG
+                IC=ICG(IG,NN)
+                IT=ITG(IG,NN)
+                DO IG_T=IG+1,NGP
+                NGG_T=NG(IG_T)
+                DO NN_T=1,NGG_T
+                IC_T=ICG(IG_T,NN_T)
+                IT_T=ITG(IG_T,NN_T)
+                IF(IC_T.EQ.IC.AND.IT_T.EQ.IT) then
+                   PRINT *,'ERROR IN DOUBLE MATCH'
+                end if
+                IF(IC_T.EQ.IC.OR.IT_T.EQ.IT)THEN
+                   IG_FOUND=IG
+                   IG_MATCH=IG_T
+                   DO N2=1,NG(IG_FOUND) !add IG_FOUND onto end of IG_MATCH
+                      ICG(IG_MATCH,N2+NG(IG_MATCH))=ICG(IG_FOUND,N2)
+                      ITG(IG_MATCH,N2+NG(IG_MATCH))=ITG(IG_FOUND,N2)
+                   END DO
+                   NG(IG_MATCH)=NG(IG_MATCH)+NG(IG_FOUND)
+                   DO N2=1,NG(N_GROUPS) !put N_GROUPS into IG_FOUND
+                      ICG(IG_FOUND,N2)=ICG(N_GROUPS,N2)
+                      ITG(IG_FOUND,N2)=ITG(N_GROUPS,N2)
+                   END DO
+                   NG(IG_FOUND)=NG(N_GROUPS)
+                   N_GROUPS=N_GROUPS-1
+                   GOTO 200
+                ENDIF
+             END DO
+          END DO
+       END DO
+      END DO
+      NG_S=0
+      DO IG=1,N_GROUPS
+         NG_S=NG_S+NG(IG)
+      END DO
+      IF(NG_S.NE.N_MATCHES) then
+         PRINT *,'ERROR: # in groups .NE. # MATCHES',NG_S
+      endif
+c     now, look at all the combinations of matches and choose the one 
+c     with the largest probability sum
+c     PRINT *,'# of matches ',N_MATCHES,' # of groups ',N_GROUPS
+c     print*, N_GROUPS 
+      DO IG=1,N_GROUPS
+         IF(NG(IG).GT.9)THEN
+            print*,'***************', NG(IG) 
+C     PRINT *,'TRY AGAIN: # matches this group =',NG(IG)
+c     GOTO 2000
+            NG(IG)=9
+            nggg=nggg+1
+c     GOTO 5000
+         ENDIF
+      END DO
+      
+C     loop through all groups containing more than one match
+      DO IG=1,N_GROUPS
+         IF(NG(IG).GT.1) THEN
+            CALL perm(NG(IG),IORDER,N_PERM_GROUPS)
+            PMAX=-1.E30	
+            IG_PERM_SAVE=0
+C     loop through these in the order of permutation IG_PERM 
+            DO IG_PERM=1,N_PERM_GROUPS
+               PSUM=0.0
+               DO NN=1,NG(IG)
+                  IC=ICG(IG,NN)
+                  IT=ITG(IG,NN)
+                  CUSED(IC)=.FALSE.
+                  TUSED(IT)=.FALSE.
+               END DO
+               DO N1=1,NG(IG)
+                  NN=IORDER(N1,IG_PERM)
+                  IC=ICG(IG,NN)
+                  IT=ITG(IG,NN)
+                  IF(.NOT.(CUSED(IC)).AND..NOT.(TUSED(IT)))THEN
+                     CUSED(IC)=.TRUE.
+                     TUSED(IT)=.TRUE.
+                     PSUM=PSUM+PMN(IC,IT)	   
+                     IF(PMN(IC,IT).EQ.-999.) then 
+                        PRINT *,'ERROR IN PERM PROBS 1'
+                     end if
+                  ENDIF
+               END DO           !end members of this group
+               IF(PSUM.GT.PMAX) THEN
+                  PMAX=PSUM
+                  IG_PERM_SAVE=IG_PERM
+                  PSUM_SAVE=PSUM
+               ENDIF
+            END DO              !end perm
+C     reset
+            DO NN=1,NG(IG)
+               IC=ICG(IG,NN)
+               IT=ITG(IG,NN)
+               CUSED(IC)=.FALSE.
+               TUSED(IT)=.FALSE.
+            END DO
+C     grab the ones with the largest total probability
+            PSUM=0.0
+            DO N1=1,NG(IG)
+               NN=IORDER(N1,IG_PERM_SAVE)
+               IC=ICG(IG,NN)
+               IT=ITG(IG,NN)
+               IF(.NOT.(CUSED(IC).OR.TUSED(IT))) THEN
+                  ICM(IT)=IC
+                  CUSED(IC)=.TRUE.
+                  TUSED(IT)=.TRUE.
+                  PSUM=PSUM+PMN(IC,IT)	   
+                  IF(PMN(IC,IT).EQ.-999.)PRINT *,'ERROR IN PERM PROBS 2'
+               ENDIF
+            END DO
+            IF(PSUM.NE.PSUM_SAVE)PRINT *,'ERROR IN PSUM'
+         ELSE                   !just one in group
+            IT=ITG(IG,1)
+            IC=ICG(IG,1)
+            IF(TUSED(IT).OR.CUSED(IC))PRINT *,'ERROR - ALREADY USED'
+            TUSED(IT)=.TRUE.
+            CUSED(IC)=.TRUE.
+            ICM(IT)=IC
+            IF(PMN(IC,IT).LE.0.0)PRINT *,'ERROR IN PERM PROBS 3'
+         ENDIF                  !end groups >1
+      END DO			!end IG=1,N_GROUPS
+
+      end subroutine match_center
+
+c***********************************************************************
+c---- Sous-routine WRITE_TRACK
+c***********************************************************************
+      subroutine write_track(oun, ntime, clat, clon, cpress, cvort, 
+     $     ccirc, closed, cb, cvtl, cvtu, cmaxqr, cmaxdz, cmaxuv, 
+     $     n_track, it, ntr, nt, nc, time, ntw, tropic,
+     $     phase)
+      implicit none
+
+      real    clat(nc,nt), clon(nc,nt), cpress(nc,nt), cvort(nc,nt)
+      real    ccirc(nc,nt), cb(nc,nt), cvtl(nc,nt), cvtu(nc,nt)
+      real    cmaxqr(nc,nt), cmaxdz(nc,nt), cmaxuv(nc,nt)
+      logical closed(nc,nt)
+      integer ntime(nc,nt),TIME(NTW)
+      integer oun, n_track, it, ntr, nc, nt, ntw, tropic, phase
+
+      integer ILAT(ntr), ILON(ntr), IPRESS(ntr), IVORT(ntr)
+      integer ICIRC(ntr), IB(ntr), IVTL(ntr), IVTU(ntr), IMAXQR(ntr)
+      integer IMAXDZ(ntr), IMAXUV(ntr)
+
+      integer nn, nnn, et_tag
+
+      et_tag = 0
+
+c     On tranforme les donnees en valeurs entieres
+      DO NN=1,NTR
+
+         ILAT(NN)  = NINT(CLAT(NN,IT)*10.)
+         ILON(NN)  = NINT(CLON(NN,IT)*10.)
+         IPRESS(NN)= NINT((CPRESS(NN,IT)))
+
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+
+            IVORT(NN) = NINT(CVORT(NN,IT)*1.E6)
+            ICIRC(NN) = NINT(CCIRC(NN,IT)*1.E-6)
+   !        IF(CLOSED(NN,IT))IPRESS(NN)=-IPRESS(NN)
+
+         else
+
+            IVORT(NN) = NINT(CVORT(NN,IT)*1.E5)
+            if (NINT(CCIRC(NN,IT)) .le. 5 .and. et_tag .eq. 0 .and. 
+     $           phase .lt. 0) et_tag=1
+            if (et_tag .eq. 0 .or. NINT(CCIRC(NN,IT)) .le. 5) then
+               ICIRC(NN) = NINT(CCIRC(NN,IT))
+            else
+               ICIRC(NN) = 0 ! Patch pour empecher un cyclone E-T 
+                             ! de redevenir Tropical en mode tropic
+            end if
+            IB(NN)     = NINT(CB(NN,IT))
+            IVTL(NN)   = NINT(CVTL(NN,IT))
+            IVTU(NN)   = NINT(CVTU(NN,IT))
+            IMAXQR(NN) = NINT(CMAXQR(NN,IT)*1.E5)
+            IMAXDZ(NN) = NINT(CMAXDZ(NN,IT))
+            IMAXUV(NN) = NINT(CMAXUV(NN,IT))
+
+        end if
+
+      END DO
+      
+!     On ecrit Numero (N_TRACK), Duree (NTR) de la trajectoire
+!     et Temps (DDHHYYMM) d'apparition de la trajectoire
+      write (oun,'(I6,i3,$)') n_track, ntr
+
+!     On ecrit Temps, Position, Tourbillon, Pression, etc 
+!     pour chacun des pas de temps de la trajectoire
+!     (sauf le dernier)
+      do nn=1,ntr-1
+         nnn=TIME(NTIME(nn,IT))
+
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+            write(oun,'(I10,2I4,i5,i3,i4,$)') nnn,ILAT(NN),ILON(NN),
+     $           IPRESS(NN),IVORT(NN),ICIRC(NN)
+         else
+            write(oun,'(I10,2I4,i5,i3,i4,6i5,$)') nnn, ILAT(NN), 
+     $           ILON(NN), IPRESS(NN), IVORT(NN), ICIRC(NN), IB(NN), 
+     $           IVTL(NN), IVTU(NN), IMAXQR(NN), IMAXDZ(NN), IMAXUV(NN)
+         end if
+
+      enddo
+
+!     On ecrit Temps Position, Tourbillon, Pression, etc 
+!     pour le dernier pas de temps de la trajectoire
+      nn=ntr
+      nnn=TIME(NTIME(nn,IT))
+      if (tropic .lt. 0 .and. phase .lt. 0) then
+         write(oun,'(I10,2I4,i5,i3,i4)') nnn,ILAT(NN),ILON(NN),
+     $        IPRESS(NN),IVORT(NN),ICIRC(NN)
+      else
+         write(oun,'(I10,2I4,i5,i3,i4,6i5)') nnn, ILAT(NN),
+     $           ILON(NN), IPRESS(NN), IVORT(NN), ICIRC(NN), IB(NN),
+     $           IVTL(NN), IVTU(NN), IMAXQR(NN), IMAXDZ(NN), IMAXUV(NN)
+      end if
+
+      end subroutine write_track
+
+c***********************************************************************
+c---- Sous-routine WRITE_TRACK XML THORPEX FORMAT
+c***********************************************************************
+      subroutine write_track_cxml(oun, ntime, clat, clon, cpress, cvort, 
+     $     ccirc, closed, cb, cvtl, cvtu, cmaxqr, cmaxdz, cmaxuv, 
+     $     n_track, it, ntr, nt, nc, time, ntw, tropic,
+     $     phase,year,month,day,hour)
+      implicit none
+
+      real    bidon
+      real    temp_long
+      integer intbidon
+      real    clat(nc,nt), clon(nc,nt), cpress(nc,nt), cvort(nc,nt)
+      real    ccirc(nc,nt), cb(nc,nt), cvtl(nc,nt), cvtu(nc,nt)
+      real    cmaxqr(nc,nt), cmaxdz(nc,nt), cmaxuv(nc,nt)
+      logical closed(nc,nt)
+      integer ntime(nc,nt),TIME(NTW)
+      integer year(NTW),month(NTW),day(NTW),hour(NTW)
+      integer oun, n_track, it, ntr, nc, nt, ntw, tropic, phase
+
+      integer ILAT(ntr), ILON(ntr), IPRESS(ntr), IVORT(ntr)
+      integer ICIRC(ntr), IB(ntr), IVTL(ntr), IVTU(ntr), IMAXQR(ntr)
+      integer IMAXDZ(ntr), IMAXUV(ntr)
+
+      integer nn, nnn, et_tag
+      character(len=30) :: date
+      et_tag = 0
+
+c     On tranforme les donnees en valeurs entieres.
+      DO NN=1,NTR
+
+
+         ILAT(NN)  = NINT(CLAT(NN,IT)*10.)
+         ILON(NN)  = NINT(CLON(NN,IT)*10.)
+         IPRESS(NN)= NINT((CPRESS(NN,IT)))
+
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+
+            IVORT(NN) = NINT(CVORT(NN,IT)*1.E6)
+            ICIRC(NN) = NINT(CCIRC(NN,IT)*1.E-6)
+   !        IF(CLOSED(NN,IT))IPRESS(NN)=-IPRESS(NN)
+
+         else
+
+            IVORT(NN) = NINT(CVORT(NN,IT)*1.E5)
+            if (NINT(CCIRC(NN,IT)) .le. 5 .and. et_tag .eq. 0 .and. 
+     $           phase .lt. 0) et_tag=1
+            if (et_tag .eq. 0 .or. NINT(CCIRC(NN,IT)) .le. 5) then
+               ICIRC(NN) = NINT(CCIRC(NN,IT))
+            else
+               ICIRC(NN) = 0 ! Patch pour empecher un cyclone E-T 
+                             ! de redevenir Tropical en mode tropic
+            end if
+            IB(NN)     = NINT(CB(NN,IT))
+            IVTL(NN)   = NINT(CVTL(NN,IT))
+            IVTU(NN)   = NINT(CVTU(NN,IT))
+            IMAXQR(NN) = NINT(CMAXQR(NN,IT)*1.E5)
+            IMAXDZ(NN) = NINT(CMAXDZ(NN,IT))
+            IMAXUV(NN) = NINT(CMAXUV(NN,IT))
+
+        end if
+
+      END DO
+      
+!     On ecrit Numero (N_TRACK), Duree (NTR) de la trajectoire
+!     et Temps (DDHHYYMM) d'apparition de la trajectoire
+      write (oun,'(a,$)') "<disturbance ID="""
+      nnn=TIME(NTIME(1,IT))
+      write (oun,'(i4,$)') year(NTIME(1,IT)) 
+      if (month(NTIME(1,IT)).lt.10) then
+       write (oun,'(a,$)') "0"
+       write (oun,'(i1,$)') month(NTIME(1,IT)) 
+      else 
+       write (oun,'(i2,$)') month(NTIME(1,IT)) 
+      end if
+      if (day(NTIME(1,IT)).lt.10) then
+       write (oun,'(a,$)') "0"
+       write (oun,'(i1,$)') day(NTIME(1,IT)) 
+      else 
+       write (oun,'(i2,$)') day(NTIME(1,IT)) 
+      end if
+      if (hour(NTIME(1,IT)).lt.10) then
+       write (oun,'(a,$)') "0"
+       write (oun,'(i1,$)') hour(NTIME(1,IT)) 
+      else 
+       write (oun,'(i2,$)') hour(NTIME(1,IT)) 
+      end if
+      write (oun,'(a,$)') "_"
+
+
+      intbidon=nint(abs(CLAT(1,IT)*10.0))
+      write (oun,'(i0,$)') intbidon
+      if (CLAT(1,IT).ge.0) then
+        write (oun,'(a,$)') "N"
+      else 
+        write (oun,'(a,$)') "S"
+      end if 
+      write (oun,'(a,$)') "_"
+
+
+      if (CLON(1,IT).ge.180) then
+        intbidon=nint((360.0-CLON(1,IT))*10.0)
+      else
+        intbidon=nint(abs(CLON(1,IT)*10.0))
+      end if 
+
+      write (oun,'(i0,$)') intbidon
+      if (CLON(1,IT).lt.0 .or. CLON(1,IT).gt.180) then
+        write (oun,'(a,$)') "W"
+      else 
+        write (oun,'(a,$)') "E"
+      end if 
+
+!      write (oun,'(a,$)') """>\n"
+      write (oun,'(a)') """>"
+      write (oun,'(a,$)') " <cycloneNumber>"
+      write (oun,'(i0,$)') n_track 
+      write (oun,'(a)') "</cycloneNumber>"
+      write (oun,'(a,$)') " <cycloneDuration>"
+      write (oun,'(i0,$)') ntr 
+      write (oun,'(a)') "</cycloneDuration>"
+
+!     On ecrit Temps, Position, Tourbillon, Pression, etc 
+!     pour chacun des pas de temps de la trajectoire
+!     (sauf le dernier)
+      do nn=1,ntr
+
+        write (oun,'(a)') " <fix>"
+
+        write (oun,'(a,$)') "  <validTime>"
+        nnn=TIME(NTIME(nn,IT))
+        write (oun,'(i4,$)') year(NTIME(nn,IT)) 
+        write (oun,'(a,$)') "-"
+        if (month(NTIME(nn,IT)).lt.10) then
+         write (oun,'(a,$)') "0"
+         write (oun,'(i1,$)') month(NTIME(nn,IT)) 
+        else 
+         write (oun,'(i2,$)') month(NTIME(nn,IT)) 
+        end if
+        write (oun,'(a,$)') "-"
+        if (day(NTIME(nn,IT)).lt.10) then
+          write (oun,'(a,$)') "0"
+          write (oun,'(i1,$)') day(NTIME(nn,IT)) 
+        else 
+          write (oun,'(i2,$)') day(NTIME(nn,IT)) 
+        end if
+        write (oun,'(a,$)') "T"
+        if (hour(NTIME(nn,IT)).lt.10) then
+          write (oun,'(a,$)') "0"
+          write (oun,'(i1,$)') hour(NTIME(nn,IT)) 
+        else 
+          write (oun,'(i2,$)') hour(NTIME(nn,IT)) 
+        end if
+        write (oun,'(a,$)') ":00:00Z"
+        write (oun,'(a)') "</validTime>" 
+
+        write (oun,'(a,$)') "  <latitude units="""
+        if (CLAT(NN,IT).ge.0) then
+          write (oun,'(a,$)') "deg N""" 
+          write (oun,'(a,$)') " precision=""0.001"">" 
+        else 
+          write (oun,'(a,$)') "deg S""" 
+          write (oun,'(a,$)') " precision=""0.001"">" 
+        end if  
+        write (oun,'(f0.3,$)') abs(CLAT(NN,IT)) 
+        write (oun,'(a)') "</latitude>"
+
+        write (oun,'(a,$)') "  <longitude units="""
+        if (CLON(NN,IT).lt.0 .or. CLON(NN,IT).ge.180 ) then
+          write (oun,'(a,$)') "deg W""" 
+          write (oun,'(a,$)') " precision=""0.001"">" 
+        else 
+          write (oun,'(a,$)') "deg E""" 
+          write (oun,'(a,$)') " precision=""0.001"">" 
+        end if  
+        if (CLON(NN,IT) .gt.180) then
+          temp_long=360.0-CLON(NN,IT)
+        else
+          temp_long=abs(CLON(NN,IT))
+        endif
+        if ( temp_long .lt. 1 ) then
+          write (oun,'(a,$)') "0"
+        end if 
+        write (oun,'(f0.3,$)') temp_long 
+
+        write (oun,'(a)') "</longitude>"
+        write (oun,'(a)') "  <cycloneData>"
+
+        write (oun,'(a,$)') "   <minimumPressure"
+        write (oun,'(a)') " source=""model"">"
+        write (oun,'(a,$)') "    <pressure units=""hPa"""
+        write (oun,'(a,$)') " precision=""0.01"">"
+        write (oun,'(f0.2,$)') (CPRESS(NN,IT)) 
+        write (oun,'(a)') "</pressure>"
+        write (oun,'(a)') "   </minimumPressure>"
+
+
+        write (oun,'(a,$)') "   <vorticityCenter"
+        write (oun,'(a)') " source=""model"">"
+        write (oun,'(a,$)') "    <vorticity units=""s-1"""
+        write (oun,'(a,$)') " factor=""10-5"">"
+        write (oun,'(i0,$)') IVORT(NN)
+        write (oun,'(a)') "</vorticity>"
+        write (oun,'(a)') "   </vorticityCenter>"
+
+        write (oun,'(a,$)') "   <circulation>"
+        write (oun,'(i0,$)') ICIRC(NN)
+        write (oun,'(a)') "</circulation>"
+
+        if (tropic .ge. 0 .or. phase .ge. 0) then
+           write (oun,'(a,$)') "   <lowLevelBaroclinity>"
+           write (oun,'(i0,$)') IB(NN)
+           write (oun,'(a)') "</lowLevelBaroclinity>"
+           write (oun,'(a,$)') "   <lowLevelStructure>"
+           write (oun,'(i0,$)') IVTL(NN)
+           write (oun,'(a)') "</lowLevelStructure>"
+           write (oun,'(a,$)') "   <highLevelStructure>"
+           write (oun,'(i0,$)') IVTU(NN)
+           write (oun,'(a)') "</highLevelStructure>"
+           write (oun,'(a,$)') "   <maxVorticity>"
+           write (oun,'(i0,$)') IMAXQR(NN)
+           write (oun,'(a)') "</maxVorticity>"
+           write (oun,'(a,$)') "   <maxThickness>"
+           write (oun,'(i0,$)') IMAXDZ(NN)
+           write (oun,'(a)') "</maxThickness>"
+           write (oun,'(a,$)') "   <maxSurfaceWind>"
+           write (oun,'(i0,$)') IMAXUV(NN)
+           write (oun,'(a)') "</maxSurfaceWind>"
+         end if
+         write (oun,'(a)') "  </cycloneData>"
+         write (oun,'(a)') " </fix>"
+      enddo
+      write (oun,'(a)') "</disturbance>"
+
+      end subroutine write_track_cxml

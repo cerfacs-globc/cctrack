@@ -1,0 +1,247 @@
+      program mt2gmt5
+      implicit none
+! declaration des variables
+      integer tmax, ntrmax,n1a,n1b,n2,n3,n4,ntot_track,n
+
+      parameter(tmax=99)
+
+      integer dd(tmax),hh(tmax), yymm(tmax), n_track(tmax), ntr(tmax)
+
+      parameter(ntrmax=99)
+
+ !     integer vector(15,ntrmax)
+      integer,  dimension (:,:)  , allocatable :: vector
+
+      integer press(tmax,ntrmax),vort(tmax,ntrmax),circ(tmax,ntrmax)
+      integer b(tmax,ntrmax),vtl(tmax,ntrmax),vtu(tmax,ntrmax)
+      integer maxqr(tmax,ntrmax),maxdz(tmax,ntrmax),maxuv(tmax,ntrmax)
+      integer year(tmax,ntrmax),month(tmax,ntrmax),day(tmax,ntrmax)
+      integer hour(tmax,ntrmax)
+      
+      real lat(tmax,ntrmax),lon(tmax,ntrmax)
+
+      integer :: i, j, eof, vorti, start, step, tp, jfile, ninfo
+      integer real_len
+      CHARACTER*128 infile, outfile,file_name,outfile_name
+      character (len = 1) :: etk1
+      character (len = 2) :: etk2
+      character (len = 1) :: etk1b
+      character (len = 2) :: etk2b
+
+c**********************
+c       Traitement des cles d'appel
+c**********************
+      call get_options(infile,outfile,tp)
+c      
+      file_name = infile(1:real_len(infile)) ! fichier sortie TXT
+
+      if (tp .lt. 0) then
+         ninfo = 9
+      else
+         ninfo = 15
+      end if
+
+      allocate ( vector(ninfo,ntrmax))
+     
+c--------------------------------------------------------------------
+c     1) On determine le nombre de trajectoires
+c--------------------------------------------------------------------
+      print*
+      print*,'=====> Lecture des parametres des trajectoires'
+      print* 
+
+      open (unit=1,file=file_name,action="read",status="old")
+      i=1
+      eof=0
+      do while (eof == 0) 
+
+         read (1,'(I6,I3)',iostat=eof) N3,N4 ! lecture du fichier
+
+         n_track(i)=N3
+         ntr(i)=N4
+         print*,i,N3,N4
+         if (N4.gt.400) then
+            print*
+            print*,'*** Erreur *** Duree de la Trajectoire > NTRMAX'
+            print*
+            stop
+         endif
+         i=i+1
+      enddo
+      close(unit=1)
+
+      ntot_track = i-2
+      print*
+      print*,'Nombre de Trajectoires :',ntot_track
+      print*
+
+      if (ntot_track.gt.400) then
+         print*
+         print*,'*** Erreur *** Nombre de Trajectoires > TMAX'
+         print*
+         stop
+      endif
+     
+c--------------------------------------------------------------------
+c     2) On lit les LATLON de chaques trajectoires
+c--------------------------------------------------------------------
+      print*
+      print*,'=====> Lecture des positions des trajectoires'
+      print*
+      open (unit=1,file=file_name,action="read",status="old")
+
+      do i = 1,ntot_track
+
+         n= ntr(i)
+         if (tp .lt. 0) then
+            read (1,'(9X,100(I4,I2,I2,I2,I4,I4,I5,I3,I4))') vector
+         else
+            read (1,'(9X,100(I4,I2,I2,I2,I4,I4,I5,I3,I4,6I5))') vector
+         endif
+
+         do j = 1,n
+            year(i,j)  = vector(1,j)-100+2000
+            month(i,j) = vector(2,j)
+            day(i,j)   = vector(3,j)
+            hour(i,j)  = vector(4,j)
+            lat(i,j)   = float(vector(5,j))/10.0
+            lon(i,j)   = float(vector(6,j))/10.0
+            press(i,j) = vector(7,j)
+            vort(i,j)  = vector(8,j)
+            circ(i,j)  = vector(9,j)
+            if (tp .ge. 0) then
+               b(i,j)     = vector(10,j)
+               vtl(i,j)   = vector(11,j)
+               vtu(i,j)   = vector(12,j)
+               maxqr(i,j) = vector(13,j)
+               maxdz(i,j) = vector(14,j)
+               maxuv(i,j) = vector(15,j)
+            end if
+
+         enddo
+      enddo
+
+      close(unit=1)
+
+c--------------------------------------------------------------------
+c     3) On ecrit les LATLON de chaque trajectoire dans un fichier separe
+c--------------------------------------------------------------------
+      do i = 1,ntot_track
+
+         if (i.lt.10) then
+            write(unit=etk1, fmt='(I1)') i
+            outfile_name = outfile(1:real_len(outfile))//etk1
+        else
+            write(unit=etk2, fmt='(I2)') i
+            outfile_name = outfile(1:real_len(outfile))//etk2
+         endif
+
+         open (unit=i,file=outfile_name,action="write",status="new")
+
+         n= ntr(i)
+         do j = 1,n
+
+          if (tp .lt. 0) then
+           vorti = nint(float(vort(i,j))/10.0)
+           write (i,'(f5.1,1X,f5.1,1X,I2,1X,I4,1X,I2,1X,I2,1X,I2,1X,I4)')
+     $          lat(i,j),lon(i,j),vorti,press(i,j),hour(i,j),day(i,j),
+     $          month(i,j),year(i,j)
+          else
+           vorti = circ(i,j)
+           write (i,'(f5.1,1X,f5.1,1X,I2,1X,I4,1X,I2,1X,I2,1X,I2,1X,I4,
+     $          1X,I5,1X,I5,1X,I5,1X,I5,1X,I5,1X,I5)') 
+     $          lat(i,j),lon(i,j),vorti,press(i,j),hour(i,j),day(i,j),
+     $          month(i,j),year(i,j),b(i,j),vtl(i,j),vtu(i,j),
+     $          maxqr(i,j), maxdz(i,j), maxuv(i,j)
+          end if
+         enddo
+
+         close(unit=i)
+
+      end do
+
+      deallocate ( vector )
+
+      end program mt2gmt5 
+      
+c***********************************************************************
+c----  Sous-routine pour la lecture et la definition des options  ------
+c***********************************************************************
+      subroutine get_options(INFILE,OUTFILE,TP)
+      implicit none
+	
+      character*128 infile, outfile
+      integer tp
+
+      integer narg
+
+      parameter (narg=3)
+
+      character *8 cle(narg)
+      character *128 def(narg),val(narg) 
+
+c- cles         
+      data cle /'i.','o.','tp'/
+c- valeurs des cles si NON mentionnees a l'appel
+      data val /'scrap','scrap','-1'/
+c- valeurs des cles si mentionnees a l'appel SANS valeurs
+      data def /'scrap','scrap','0'/
+
+*-------------------------------------------------------------------
+
+c On associe les parametres donnes a l'appel avec les 
+c cles appropriees
+
+      call ccard(cle,def,val,narg,-1)
+*
+      read (val(1),4) infile
+      read (val(2),4) outfile
+ 4    format(a128)
+      
+      read (val(3),*) tp
+
+      if (val(1).eq.'scrap') then
+         print*
+         print*,'******** Cles standards ********'
+         print*
+         print*,'-i : fichier standard d''entree'
+         print*
+         print*,'-o : fichier standard de sortie contenant les'
+         print*,'     resultats du calcul'
+      endif
+
+*
+c     On attribue les valeurs par defaut aux cles non-specifiees
+*
+      if (val(2).eq.'scrap') then
+         print*, "Valeurs par defaut: output  = scrap"
+      endif
+
+      return
+      end
+
+c******************************************
+
+      integer function real_len(ch)
+      implicit none
+
+c     Subroutine to calculate real length of a string
+c
+      character*(*) ch
+*
+      integer l, length, count, len
+*
+      length = len(ch)
+      count = length
+      do while (count.ge.1)
+         if (ch(count:count).eq.' ') then
+            length = length - 1
+         else
+            count = 0
+         endif
+         count = count - 1
+      enddo
+
+      real_len = length
+      return
+      end

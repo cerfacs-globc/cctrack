@@ -1,0 +1,2546 @@
+#include <tracks_cte.h>
+
+c***********************************************************************
+c---- Sous-routine GLOBAL_OR_LAM                                     ---
+c***********************************************************************
+      subroutine global_or_lam(global, lon, ni, nj)
+      implicit none
+
+      integer ni, nj
+      real  lon(ni,nj)
+      integer global
+
+      real    dx, next_lon
+      integer j
+
+      j = nj/2
+      dx       = lon(2,j) - lon(1,j)
+      next_lon = lon(ni,j) + dx
+      if ( next_lon .ge. 360. ) next_lon = next_lon - 360.
+      
+      if ( ( next_lon .ge. lon(1,j)-dx/4   .and.
+     $     next_lon .le. lon(1,j)+dx/4 ) .or.
+     $     ( next_lon .ge. lon(2,j)-dx/4   .and.
+     $     next_lon .le. lon(2,j)+dx/4 )) then
+
+         if ( lon(1,j) .eq. lon(ni,j) ) then
+            global = 2
+            print*
+            print *,' *** Grille globale ou i = ni (repetition) '
+         else  
+            global = 1
+            print*
+            print *,' *** Grille globale ou i /= ni '
+         end if
+
+      else
+
+         global = 0
+         print*
+         print *,' *** Grille a aire limitee '
+
+      end if
+
+      end subroutine global_or_lam
+
+c***********************************************************************
+c---- Sous-routine GRAD_VORT                                         ---
+c***********************************************************************
+      subroutine grad_vort(VORT, h, delta_x, delta_y, slat, gdid, 
+     $     ni, nj)
+      implicit none
+
+      real  vort(ni,nj), h(ni,nj), slat(ni,nj)
+      real  ug(ni,nj), vg(ni,nj), wind_spd(ni,nj)
+      real  work1(ni,nj), work2(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+      real  fc(ni,nj)
+
+      real slatt
+      real ome
+
+      integer gdid, ni, nj
+      integer i, j
+
+      ome=K_OME
+
+      ! H en entree doit etre en DAM !
+
+      DO J=1,NJ
+         DO I=1,NI
+            SLATT=SLAT(I,J)
+            IF(ABS(SLAT(I,J)).LT.20.) THEN
+               IF(SLAT(I,J).LE.0.)SLATT=-20.
+               IF(SLAT(I,J).GT.0.)SLATT=20.
+            ENDIF
+            FC(I,J)=2.*OME*SIND(SLATT) ! coriolis parameter
+         END DO
+      END DO
+
+      call derhn_gr(VG,H,'x',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
+      call derhn_gr(UG,H,'y',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
+      
+      CALL GRADIENT_WIND_FACTOR(H,WORK1,delta_x,delta_y,gdid,ni,nj)
+      VG(:,:)= VG(:,:)*WORK1(:,:)/FC(:,:)
+      UG(:,:)=-UG(:,:)*WORK1(:,:)/FC(:,:)
+      WIND_SPD(:,:)=SQRT(UG(:,:)**2+VG(:,:)**2)
+      
+      call derhn_gr(WORK1,UG,'y',1.0,delta_x,delta_y,ni,nj)
+      call derhn_gr(WORK2,VG,'x',1.0,delta_x,delta_y,ni,nj)
+
+      VORT(:,:)=WORK2(:,:)-WORK1(:,:)
+      
+      end subroutine grad_vort
+
+c***********************************************************************
+c---- Sous-routine VORT                                              ---
+c***********************************************************************
+      subroutine vorticity(VORT, u, v, delta_x, delta_y, ni, nj)
+      implicit none
+
+      real  vort(ni,nj)
+      real  u(ni,nj), v(ni,nj)
+      real  wk1(ni,nj), wk2(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+
+      integer ni, nj
+
+      call derhn_gr(wk1, u, 'y', 1.0, delta_x, delta_y, ni, nj)
+      call derhn_gr(wk2, v, 'x', 1.0, delta_x, delta_y, ni, nj)
+      call gdadgd(vort, wk2, wk1, 1.0, -1.0, ni, nj, 0)
+
+      end subroutine vorticity
+
+c***********************************************************************
+c---- Sous-routine THERM_WIND                                        ---
+c***********************************************************************
+      subroutine therm_wind(UT, VT, DZ, delta_x, delta_y, lat, ni, nj)
+      implicit none
+
+      real  ut(ni,nj), vt(ni,nj)
+      real  dz(ni,nj), lat(ni,nj)
+      real  wk1(ni,nj), wk2(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+
+      real  fc, ome, latt
+      integer ni, nj, i, j
+
+      ! DZ en entree doit etre en DAM !
+
+      ome=K_OME
+
+      call derhn_gr(wk1, dz, 'y', 10.0*K_GRAVITY, delta_x, delta_y, 
+     $     ni, nj)
+      call derhn_gr(wk2, dz, 'x', 10.0*K_GRAVITY, delta_x, delta_y, 
+     $     ni, nj)
+      
+      DO J=1,NJ
+         DO I=1,NI
+            LATT=LAT(I,J)
+            IF(ABS(LAT(I,J)).LT.20.) THEN
+               IF(LAT(I,J).LE.0.)LATT=-20.
+               IF(LAT(I,J).GT.0.)LATT=20.
+            ENDIF
+            FC=2.*OME*SIND(LATT) ! coriolis parameter
+            ut(i,j) = -1.0 * wk1(i,j) / fc
+            vt(i,j) = wk2(i,j) / fc
+         END DO
+      END DO
+
+      end subroutine therm_wind
+
+c***********************************************************************
+c---- Sous-routine CLOSEST_CENTRE                                    ---
+c***********************************************************************
+      subroutine closest_centre(DIST_MIN, F_LAT, F_LON, c_lat, c_lon, 
+     $     x_lat, x_lon, nx, nc)
+      implicit none
+
+      integer nc, nx
+
+      real  dist_min, c_lat, c_lon
+      real  x_lat(nc), x_lon(nc)
+      real  daz, dist, f_lat, f_lon
+
+      integer x
+
+      dist_min = 1.E30 ! metres
+      f_lat    = 0.0
+      f_lon    = 0.0
+      do x = 1, nx
+         call gcpazd(x_lat(x), x_lon(x), c_lat, c_lon, daz, dist)
+         if (dist .lt. dist_min) then
+            dist_min = dist
+            f_lat    = x_lat(x)
+            f_lon    = x_lon(x)
+         end if
+      end do
+
+      end subroutine closest_centre
+
+c***********************************************************************
+c---- Sous-routine SURROUND_MINMAX                                      ---
+c***********************************************************************
+      subroutine surround_minmax(MIN, MAX, c_i, c_j, c_lat, c_lon, 
+     $     field, radius, delta_x, delta_y, lat, lon, ni, nj)
+      implicit none
+
+      integer ni, nj, c_i, c_j, c_lat, c_lon
+      real    field(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+      real    lat(ni,nj), lon(ni,nj)
+      real    min, max, radius, daz, dist
+
+      integer i, j, point_num_x, point_num_y
+
+      max = -9.E19
+      min = +9.E19
+
+      point_num_x = nint( radius * 1.E3 / delta_x(c_i,c_j) ) + 1
+      point_num_y = nint( radius * 1.E3 / delta_y(c_i,c_j) ) + 1
+
+ !     print*, c_i, c_j, radius, delta_x(c_i,c_j), delta_y(c_i,c_j), 
+ !    $     point_num_x, point_num_y
+
+      do i = c_i - point_num_x, c_i + point_num_x
+         do j = c_j - point_num_y, c_j + point_num_y
+
+            if (i .lt. 1 ) cycle
+            if (i .gt. ni) cycle
+            if (j .lt. 1 ) cycle
+            if (j .gt. nj) cycle
+
+            call GCPAZD(c_lat, c_lon, lat(i,j), lon(i,j), daz, DIST)
+            if ( dist .le. radius * 1.E3 ) then
+               if ( field(i,j) .gt. max ) then
+                  max = field(i,j)
+               end if
+               if ( field(i,j) .lt. min ) then
+                  min = field(i,j)
+               end if
+            end if
+         end do
+      end do
+
+      end subroutine surround_minmax
+
+c***********************************************************************
+c---- Sous-routine SURROUND_MEAN                                     ---
+c***********************************************************************
+      subroutine surround_mean(MEAN, c_i, c_j, c_lat, c_lon, field,
+     $     radius, delta_x, delta_y, lat, lon, ni, nj)
+
+      implicit none
+
+      integer ni, nj, c_i, c_j
+      real    c_lat, c_lon
+      real    field(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+      real    lat(ni,nj), lon(ni,nj)
+      real    mean, radius
+
+      real    dist, daz, count_inv
+      integer i, j, point_num_x, point_num_y
+      integer count
+
+      mean = 0.
+
+      point_num_x = nint( radius * 1.E3 / delta_x(c_i,c_j) ) + 1
+      point_num_y = nint( radius * 1.E3 / delta_y(c_i,c_j) ) + 1
+
+      count = 0
+      do i = c_i - point_num_x, c_i + point_num_x
+         do j = c_j - point_num_y, c_j + point_num_y
+
+            if (i .lt. 1 ) cycle
+            if (i .gt. ni) cycle
+            if (j .lt. 1 ) cycle
+            if (j .gt. nj) cycle
+
+            call GCPAZD(c_lat, c_lon, lat(i,j), lon(i,j), daz, DIST)
+            if ( dist .le. radius * 1.E3 ) then
+               count = count + 1
+               count_inv = 1.0 / real(count)
+               mean = ( real(count-1) * mean + field(i,j) ) * count_inv
+            end if
+
+         end do
+      end do
+
+      end subroutine surround_mean
+
+c***********************************************************************
+c---- Sous-routine SURROUND_WC_MEAN                                  ---
+c***********************************************************************
+       subroutine surround_wc_mean(WARM, COLD, c_i, c_j, c_lat, c_lon,
+     $     field, radius, tuvdir, delta_x, delta_y, lat, lon, ni, nj)
+
+      implicit none
+
+      integer ni, nj, c_i, c_j
+      real    c_lat, c_lon
+      real    field(ni,nj), delta_x(ni,nj), delta_y(ni,nj)
+      real    lat(ni,nj), lon(ni,nj)
+      real    warm, cold, radius, tuvdir
+
+      real    dist, daz, icount_w, icount_c, dummy, dir, ddir
+      integer i, j, point_num_x, point_num_y
+      integer count_w, count_c
+
+      warm = 0.
+      cold = 0.
+
+      point_num_x = nint( radius * 1.E3 / delta_x(c_i,c_j) ) + 1
+      point_num_y = nint( radius * 1.E3 / delta_y(c_i,c_j) ) + 1
+
+      count_w = 0
+      count_c = 0
+      do i = c_i - point_num_x, c_i + point_num_x
+         do j = c_j - point_num_y, c_j + point_num_y
+
+            if (i .lt. 1 ) cycle
+            if (i .gt. ni) cycle
+            if (j .lt. 1 ) cycle
+            if (j .gt. nj) cycle
+
+            ! Distance entre le centre du cyclone et le point de grille
+            call GCPAZD(c_lat, c_lon, lat(i,j), lon(i,j), daz, DIST)
+
+            if ( dist .le. radius * 1.E3 ) then
+            ! Angle entre le point (i,j) et le point le plus pres du
+            ! centre du cyclone (c_i,c_j)
+               call UVTOSD(float(i-c_i), float(j-c_j), dummy, DIR)
+
+               ddir = dir - tuvdir
+               if (ddir .lt. 0.0) ddir = ddir + 360.0
+               if (ddir .gt. 360.0) ddir = ddir - 360.0
+
+               if ( (ddir .ge.   0.0) .and.
+     $              (ddir .lt. 180.0)       ) then ! Cote droit
+                  count_w = count_w + 1
+                  icount_w = 1.0 / real(count_w)
+                  warm = ( real(count_w-1) * warm + field(i,j) ) *
+     $                 icount_w
+               else
+                  count_c = count_c + 1
+                  icount_c = 1.0 / real(count_c)
+                  cold = ( real(count_c-1) * cold + field(i,j) ) *
+     $                 icount_c
+               end if
+
+            end if
+
+         end do
+      end do
+
+      end subroutine surround_wc_mean
+
+c***********************************************************************
+c---- Sous-routine ECRIT_FST                                         ---
+c***********************************************************************
+      subroutine ecrit_fst(iun,buffer,nomvar,etiket,ip1,ip2,npas,
+     $     dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+      implicit none
+
+      character*2 nomvar
+      character*1 typvar, grtyp
+      character*12 etiket
+
+      integer dateo, deet, npas, ni, nj, nk, npak, datyp
+      integer ip1, ip2, ip3
+      integer ig1, ig2, ig3, ig4, iun
+
+      integer fstecr, ier
+      real buffer(ni,nj)
+      real wke (ni,nj)
+
+
+      npak = -16
+      nk = 1
+
+      ier = fstecr(buffer,wke,npak,iun,dateo,deet,npas,ni,nj,nk,  
+     $     ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,ig3,
+     $     ig4,1,.false.)
+      
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine DIFFDIR                                           ---
+c***********************************************************************
+      subroutine diffdir(ddir,dist1,dist2,clat,clon,nn,it,nt,nc,tlat,
+     $     tlon,tstep)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Septembre 2010                     -
+c     ----------------------------------------------------------
+
+      integer nt,nc,nn,it,tstep
+      real clat(nt,nc),clon(nt,nc),dist
+      real tlat,tlon,dlat,dlon,dir1,dir2,dist1,dist2,ddir
+      logical pass
+
+c     Direction entre le centre a l'etude et la derniere position
+c     de la trajectoire
+      call distance(dist1,dir1,dlon,dlat,tlat,tlon,clat(nn,it),
+     $     clon(nn,it),1.0/(tstep*1000.0))
+
+c     Derniere direction de la trajecoire
+      call distance(dist2,dir2,dlon,dlat,clat(nn,it),clon(nn,it),
+     $     clat(nn-1,it),clon(nn-1,it),1.0/(tstep*1000.0))
+
+c     Changement de direction implique par le centre a l'etude
+      ddir=abs(dir1-dir2)
+      if(ddir.gt.180.0)then
+         ddir=360.-ddir
+      endif
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine DISTANCE                                          ---
+c***********************************************************************
+      subroutine distance(DT, DIR, DX, DY, lat2, lon2, lat1, lon1, 
+     $     fact)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Septembre 2010                     -
+c     ----------------------------------------------------------
+
+c     Calcul utilisant la Formule d'Haversine
+c     Reference: R.W. Sinnott,'Virtues of Haversine',Sky and Telescope,
+c     vol.68, no.2, 1984, p.159)
+
+c     Les distance sont en m
+
+      real lat1, lon1, lat2, lon2, dx, dy ,dt, dir, fact, dt2
+      real dlat, dlon, a, c, R
+
+c     Rayon moyen de la Terre
+      R = K_EARTHR            
+*     
+      dlon = lon2 - lon1
+
+      dlat = 0.0
+
+      a = (sind(dlat/2.0))**2 +
+     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      c = 2.0 * atan2(sqrt(a),sqrt(1-a))
+      dx= R * c * fact
+
+      ! On suppose que les longitudes sont ordonnes de 0 a 359 !!!
+      if( (dlon.lt.0.0 .and. dlon.gt.-180.0) .or.
+     $     dlon.gt.180.0                   ) then
+         dx=-1.0*dx
+      endif
+*     
+      dlon = 0.0
+      dlat = lat2 - lat1
+
+      a = (sind(dlat/2.0))**2 +
+     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      c = 2.0 * atan2(sqrt(a),sqrt(1-a))
+      dy= R * c * fact
+      if(dlat.lt.0.0)then
+         dy=-1.0*dy
+      endif
+*     
+      dlon = lon2 - lon1
+      dlat = lat2 - lat1
+
+      a = (sind(dlat/2.0))**2 +
+     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      c = 2.0 * atan2(sqrt(a),sqrt(1-a))
+      dt= R * c * fact
+*     
+      dt2=sqrt(dx**2+dy**2)
+      if(dt2.ne.0.0)then
+         dir=acosd(dy/dt2)
+         if(dx.lt.0.0)then
+            dir=360.-dir
+         endif
+      else
+         dir=0.0
+      endif
+*     
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine GCPAZD                                            ---
+c***********************************************************************
+      SUBROUTINE GCPAZD(DLAT1,DLON1,DLAT2,DLON2,DAZ12,DIST12)
+      implicit none
+
+!     DESCRIPTION
+!     
+C     TO COMPUTE THE GREAT-CIRCLE PATH AZIMUTH (AZ12) AND
+C     DISTANCE (DIST12) BETWEEN THE POINTS (DLAT1,DLON1) 
+C     AND (DLAT2,DLON2)
+C     
+C     ALL ANGLES AND LAT/LON ARE IN DEGREES IF THEY START WITH D,
+C     IN RADIANS IF THEY START WITH R.
+
+c     Arguments
+      REAL DLAT1            ! Input latitude of first point
+      REAL DLON1            ! Input longitude of first point
+      REAL DLAT2            ! Input latitude of second point
+      REAL DLON2            ! Input longitude of second point
+      REAL DAZ12            ! Output azimuth from 1 to 2 (degrees true)
+      REAL DIST12           ! Output distance from 1 to 2 (m)
+
+c     Local Variables
+      real EARTHR, DEGTOR, RLAT1, RLAT2, RLON1, RLON2, COS12
+      real SRLAT1, SRLAT2, CRLAT1, CLON12, COSBET, BETA, RAZ12
+
+!     ----------------------------------------------------------
+!     AUTHORS:       Neil Gordon
+!     CREATION DATE: 10-Jun-1988 (operational version)
+!     ----------------------------------------------------------
+
+      EARTHR=K_EARTHR
+      DEGTOR=K_DEGTOR
+
+      RLAT1=DLAT1*DEGTOR
+      RLAT2=DLAT2*DEGTOR
+      RLON1=DLON1*DEGTOR
+      RLON2=DLON2*DEGTOR
+C     
+      IF (DLAT1.EQ.DLAT2 .AND. DLON1.EQ.DLON2) then 
+         DAZ12 = 0.0
+         DIST12 = 0.0
+      else  
+C     
+         SRLAT1=SIN(RLAT1)
+         SRLAT2=SIN(RLAT2)
+         CRLAT1=COS(RLAT1)
+C     
+         CLON12=COS(RLON1-RLON2)
+C     
+C     CALCULATE ANGLE SUBTENDED BETWEEN POINTS
+C     
+         COSBET=SRLAT1*SRLAT2+CRLAT1*COS(RLAT2)*CLON12
+         IF(COSBET.LT.-1.) COSBET=-1. !IN CASE OF ROUNDOFF
+         IF(COSBET.GT.+1.) COSBET=+1. !DITTO
+         BETA=ABS(ACOS(COSBET))
+         DIST12=EARTHR*BETA
+C     
+         if ( DIST12 == 0.0 ) then
+            ! stop pour eviter une division par zero
+            DAZ12 = 0.0
+            return
+         end if
+
+         COS12=(SRLAT2-COSBET*SRLAT1)/(SIN(BETA)*COS(RLAT1))
+         IF(COS12.LT.-1.) COS12=-1.
+         IF(COS12.GT.+1.) COS12=+1. !IN CASE OF ROUNDOFF
+         RAZ12=ACOS(COS12)
+C     
+         DAZ12=RAZ12/DEGTOR
+C     
+C     TEST FOR AZIMUTH BEING 180-360, RATHER THAN 0-180
+C     
+         IF(SIN(RLON2-RLON1).LT.0.) DAZ12=360.-DAZ12
+      endif
+      
+      return
+      END
+
+c***********************************************************************
+c---- Sous-routine GCPMOV                                            ---
+c***********************************************************************
+      SUBROUTINE GCPMOV(DLAT1,DLON1,DLAT2,DLON2,DAZ12,DIST12)
+      implicit none
+
+!     DESCRIPTION
+C     
+C     TO RETURN THE POINT DLAT2,DLON2 WHICH IS AT THE GIVEN
+C     BEARING AND DISTANCE FROM DLAT1,DLON1
+C     
+C     ALL ANGLES AND LAT/LON ARE IN DEGREES IF THEY START WITH D,
+C     IN RADIANS IF THEY START WITH R.
+C     
+C     ALL ANGLES AND LAT/LON ARE IN DEGREES IF THEY START WITH D,
+C     IN RADIANS IF THEY START WITH R.
+
+!     ARGUMENTS
+      REAL*4 DLAT1              ! Input latitude of first point
+      REAL*4 DLON1              ! Input longitude of first point
+      REAL*4 DLAT2              ! Output latitude of second point
+      REAL*4 DLON2              ! Output longitude of second point
+      REAL*4 DAZ12              ! Input azimuth from 1 to 2 (degrees true)
+      REAL*4 DIST12             ! Input distance from 1 to 2 (m)
+
+c     Local Variables
+      real EARTHR, DEGTOR, RLAT1, RLON1, R12, CR12, SR12
+      real SRLAT1, CRLAT1, RAZ12, CRAZ12, DLON12
+
+!     ----------------------------------------------------------
+!     AUTHORS:       Neil Gordon
+!     CREATION DATE: 10-Jun-1988 (operational version)
+!     ----------------------------------------------------------
+
+      EARTHR=K_EARTHR
+      DEGTOR=K_DEGTOR
+
+      RLAT1=DLAT1*DEGTOR
+      SRLAT1=SIN(RLAT1)
+      CRLAT1=COS(RLAT1)
+      RLON1=DLON1*DEGTOR
+      R12=DIST12/EARTHR
+      CR12=COS(R12)
+      SR12=SIN(R12)
+      RAZ12=DAZ12*DEGTOR
+      CRAZ12=COS(RAZ12)
+      DLAT2=ASIN(SRLAT1*CR12+CRLAT1*SR12*CRAZ12)/DEGTOR
+      DLON12=ATAN2(SR12*SIN(RAZ12),CR12*CRLAT1-SR12*SRLAT1*CRAZ12)/
+     $     DEGTOR
+      DLON2=MOD(DLON1+DLON12+720.0,360.)
+      IF (DLON2.GT.180.0) DLON2=DLON2-360.
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine GET_TIMES                                         ---
+c***********************************************************************
+      subroutine get_times(year, month, day, hour, nstamp,
+     $     ntimes, nincr, hi, hf, iun, nomvar, ip1, ntw)
+      implicit none
+
+      integer ntw, iun, naj, hi, hf
+      integer year(ntw), month(ntw), day(ntw), hour(ntw)
+      character*2 nomvar
+      integer nstamp(ntw), ntimes, nincr
+
+      integer ier
+      integer dateo,deet,npas,ni,nj,nbits,datyp,nk,datev
+      integer ip1,ip2,ip3,swa,lng,dltf,ubc,ip1d
+      integer ig1,ig2,ig3,ig4,extra1,extra2,extra3
+      integer liste(ntw),infon,vip2(ntw)
+
+      character*1 typvar, grtyp
+      character*12 etiket
+      character*2 nomvar_f
+
+      real,allocatable,dimension (:) :: ibwork
+
+
+      integer fstprm, fstinl, newdate
+      integer i, k, cmcstamp, curdate, curhour, nnincr, t
+
+      ier = fstinl(iun, ni, nj, nk, -1, ' ', ip1, -1, -1, ' ', nomvar,
+     $     liste, infon, ntw)
+
+      k = 1
+      t = 1
+      do i=1,infon
+         ier = fstprm(liste(i),dateo,deet,npas,ni,nj,nk,nbits,
+     $       datyp,ip1d,ip2,ip3,typvar,nomvar_f,etiket,grtyp,ig1,ig2,
+     $        ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+         call incdat(cmcstamp, dateo, ip2)
+         call ins_unique_vect(nstamp, cmcstamp, k, ntw)
+         call ins_unique_vect(vip2, ip2, t, ntw)
+      enddo
+      nk = k - 1
+
+      if (nk.gt.0) then
+	 allocate(ibwork(nk))
+         call c_sort(nstamp, ibwork, nk)
+         call c_sort(vip2, ibwork, nk)
+         deallocate (ibwork)
+         hi = vip2(1)
+         hf = vip2(nk)
+      else
+         print*
+         print*,'Nombre de temps egal a zero.'
+         print*,'Impossible de continuer.'
+         print*
+         stop
+      endif
+
+      call difdat(nstamp(1), nstamp(2), nincr)
+      nincr = abs(nincr)
+
+      ntimes = 0
+      do k=1,nk
+         ntimes = ntimes + 1
+         ier = newdate(nstamp(k), curdate, curhour, -3)
+         year(ntimes) = curdate / 10000
+         month(ntimes) = (curdate - (year(ntimes)*10000)) / 100
+         day(ntimes) = curdate - (year(ntimes)*10000) -
+     $        (month(ntimes)*100)
+         hour(ntimes) = curhour / 1000000
+	 if (k.gt.1) then
+            call difdat(nstamp(k-1), nstamp(k), nnincr)
+            nnincr = abs(nnincr)
+            if (nnincr.ne.nincr) then
+               print*
+	       print*,'Time increment is not constant in the datafile.'
+	       print*,'It must be for make_tracks to work.'
+	       print*,'Aborting...'
+	       stop
+            endif
+         endif
+      enddo
+
+      IF(NINCR.LE.0.OR.NINCR.GT.24) then
+	 print*
+	 print*,'GET_TIMES: Invalid time increment'
+	 stop
+      else
+	 print*
+	 print*,'Les donnees sont a toutes les :',NINCR,'heures'
+	 print*
+      end if
+
+      IF(NTIMES.EQ.0.OR.NTIMES.GT.NTW) then
+	 print*
+	 print*,'GET_TIMES: NTIMES greater then NTW !!! Stop'
+	 stop
+      end if
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine GRADIENT_WIND_FACTOR                              ---
+c***********************************************************************
+      SUBROUTINE GRADIENT_WIND_FACTOR(H,F_GRAD,delta_x,delta_y,gdid,
+     $     ni,nj)
+      implicit none
+!     
+!     DESCRIPTION
+!     
+!     Computes F_GRAD, the factor that geostrophic winds are multiplied by
+!     to get gradient wind
+!     
+!     Valid both hemispheres
+!     
+!     ARGUMENTS
+      INTEGER NI,NJ		!defined below in COMMON /GRID/
+      REAL	H(NI*NJ)	!.rf.ra	input geopotential field
+      REAL	F_GRAD(NI*NJ)	!.wf.ra	ouput gradient wind factor
+      REAL    delta_x(NI*NJ), delta_y(NI*NJ)
+      integer gdid
+
+!     Local variables
+      integer ier, gdllfxy, nij, i, j, k, ihem, ij
+
+      real pi, ome, rd, slat, slon, fij, term1, term2, term3, denom
+      real vg, fk, v, ro
+
+      real dHdx(NI*NJ),dHdy(NI*NJ),d2Hdxdy(NI*NJ),d2Hdx2(NI*NJ)
+      real d2Hdy2(NI*NJ)
+
+!     ----------------------------------------------------------
+!     AUTHORS: M.R.SINCLAIR, based on Trenberth's T.I.C. 158 pp. 10-12
+!     CREATION DATE: 09-MAR-1989
+!     ----------------------------------------------------------
+
+      RD=K_DEGTOR               !PI/180.
+      OME=K_OME
+
+      NIJ=NI*NJ
+      IF(NIJ.EQ.0) then
+         STOP 'GRADIENT_WIND_FACTOR: CHECK NI,NJ'
+      endif
+
+      ! H en entree doit etre en DAM !
+
+      call derhn_gr(dHdx,H,'x',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
+      call derhn_gr(dHdy,H,'y',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
+
+      call derhn_gr(d2Hdx2,dHdx,'x',1.0,delta_x,delta_y,ni,nj)
+      call derhn_gr(d2Hdxdy,dHdx,'y',1.0,delta_x,delta_y,ni,nj)
+
+      call derhn_gr(d2Hdxdy,dHdy,'x',1.0,delta_x,delta_y,ni,nj)
+      call derhn_gr(d2Hdy2,dHdy,'y',1.0,delta_x,delta_y,ni,nj)
+
+      DO J=1,NJ
+         DO I=1,NI
+
+            IJ=I+(J-1)*NI
+
+            ier = gdllfxy(gdid, SLAT, SLON, I*1., J*1., 1)
+            IF(SLAT.LE.0.0)THEN
+               FIJ=2.*OME*SIND(MIN(SLAT,-20.))
+               IHEM=-1
+            ELSE
+               FIJ=2.*OME*SIND(MAX(SLAT,20.))
+               IHEM=1
+            ENDIF
+C     
+C           USE FORMULAE FROM TRENBERTH'S TECH NOTE TIC 158 P. 11
+C     
+            TERM1=d2Hdx2(IJ)*dHdy(IJ)**2
+            TERM2=-2.*dHdx(IJ)*dHdy(IJ)*d2Hdxdy(IJ)
+            TERM3=d2Hdy2(IJ)*dHdx(IJ)**2
+            DENOM=dHdx(IJ)**2+dHdy(IJ)**2
+            VG=ABS(1./FIJ)*SQRT(DENOM)
+            IF(VG.GT.2.)THEN
+               FK=IHEM*(TERM1+TERM2+TERM3)/DENOM**1.5
+            ELSE
+               FK=0.0
+               VG=5.0
+            ENDIF
+            V=VG
+
+c           Iteratively compute Ro = KV/f then multiply V 1/(1+Ro)
+c           and recompute Ro
+            DO K=1,5
+               Ro=MIN(0.5,MAX(-0.25,FK*V/FIJ))		
+               V=VG/(1.+Ro)
+            END DO
+            F_GRAD(IJ)=V/VG
+         END DO
+      END DO
+C     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine INSIDE                                            ---
+c***********************************************************************
+      SUBROUTINE INSIDE(X,Y,N,XX,YY,YES,XC,YC)
+      implicit none
+C     
+C     Returns YES=.true. if the point (XX,YY) is found to be within
+C     (or exactly on) the closed figure defined by the points
+C     (X(1),Y(1)),...,(X(N),Y(N)), (X(1),Y(1)).
+C     These points must be in clockwise sequence around the figure.
+C     
+C     The algorithm finds the closest point on the figure to (XX,YY)
+C     and returns its co-ordinates in (XC,YC)
+C     
+C     If this closest point is on a line segment, then we simply look
+C     to see on what side of the line (XX,YY) is.  If it is to the left,
+C     then it must be outside the figure.
+C     
+C     If the closest point is a vertex, then (XX,YY) will be outside the
+C     figure if and only if the angle formed by the lines meeting 
+C     at the vertex is acute.
+C     
+C     The squared distance to the closest vertex or line segment will
+C     be ASQMIN.  If it's a line segment, the line is from
+C     (X(I1MIN),Y(I1MIN)) to (X(I2MIN),Y(I2MIN)).
+C     If it's a vertex it's the point (X(I1MIN),Y(I1MIN)) and
+C     I2MIN is set to zero.
+C     
+c     Arguments
+      real      X(N),Y(N)
+      LOGICAL   YES
+      real      xp, xx, yy, xc, yc
+      integer   n
+
+c     Local variables
+      integer   i1min, i1, i2min, i2, i1m1, i1p1
+
+      real      x1, y1, x2, y2, d, x2mx1, y2my2, x4, y4, asq, asqmin
+      real      x3, y3, y2my1
+
+      I1MIN=0
+      DO I1=1,N
+         X1=X(I1)
+         Y1=Y(I1)
+         IF (I1.EQ.N) THEN
+	    I2=1
+         ELSE
+	    I2=I1+1
+         END IF
+         X2=X(I2)
+         Y2=Y(I2)
+         X2MX1=X2-X1
+         Y2MY1=Y2-Y1
+C     
+C     Compute 'distance' of dropped perpendicular along 
+C     the line, taking D=0
+C     at (X1,Y1) and D=1 at (X2,Y2)
+C     
+         D=((XX-X1)*X2MX1+(YY-Y1)*Y2MY1)/(X2MX1**2+Y2MY1**2)
+C     
+C     Check to see if we're on the line segment (0=<D=<1)
+C     
+         IF (D.GE.0. .AND. D.LE.1.) THEN
+	    X4=X1+D*X2MX1	!Compute (X4,Y4) - the foot of the perpendicular
+	    Y4=Y1+D*Y2MY1
+         ELSE			!Take (X4,Y4) as (X1,Y1)
+	    X4=X1
+	    Y4=Y1	    
+	    I2=0                !So we know this is a vertex
+         END IF
+         ASQ=(XX-X4)**2 + (YY-Y4)**2
+         IF (I1MIN.EQ.0.OR.ASQ.LT.ASQMIN) THEN
+	    ASQMIN=ASQ
+	    I1MIN=I1
+	    I2MIN=I2 
+	    XC=X4
+	    YC=Y4		!Saves closest point
+         END IF
+      END DO
+C     
+C     If a line segment, then it's inside if (XX,YY) falls to the
+C     right of the line from I1MIN to I2MIN.
+C     
+C     If a vertex, then it's inside if the point I2MIN+1 falls
+C     to the right of the line from I1MIN to I1MIN-1.
+C     
+C     So let's set up points (X1,Y1) to (X2,Y2) for the line, and
+C     (X3,Y3) for the point we are testing
+C     
+      X1=X(I1MIN)               !Same for both cases
+      Y1=Y(I1MIN)
+      IF (I2MIN.GT.0) THEN      !Line segment
+         X2=X(I2MIN)
+         Y2=Y(I2MIN)
+         X3=XX
+         Y3=YY
+      ELSE                      !Vertex
+         I1M1=I1MIN-1
+         IF (I1M1.EQ.0) I1M1=N
+         X2=X(I1M1)
+         Y2=Y(I1M1)
+         I1P1=I1MIN+1
+         IF (I1P1.GT.N) I1P1=1
+         X3=X(I1P1)
+         Y3=Y(I1P1)
+      END IF
+C     
+      YES=(X3-X1)*(Y2-Y1).GE.(Y3-Y1)*(X2-X1)
+C     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine PERM                                              ---
+c***********************************************************************
+      SUBROUTINE PERM(N,IORDER,NP)
+      implicit none
+
+c     Arguments
+      INTEGER IORDER(9,362880)
+      integer n, np
+
+c     Local variables
+      integer nn, ip, i1, i2, i3, i4, i5, i6, i7, i8, i9
+
+c     Computes the NP(=n!) permutations of integers 1 to n
+
+      IF(N.LE.0) STOP 'PERM: N.LE.0'
+      NN=N
+      IP=0
+      IF(NN.EQ.1) THEN
+         IP=1
+         IORDER(1,1)=1
+      ELSE IF(NN.EQ.2)THEN
+         IP=2
+         IORDER(1,1)=1
+         IORDER(2,1)=2
+         IORDER(1,2)=2
+         IORDER(2,2)=1
+      ELSE IF(NN.EQ.3) THEN
+         DO I1=1,NN
+         DO I2=1,NN
+         IF(I2.NE.I1) THEN
+         DO I3=1,NN
+            IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	      IP=IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.4) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	      IP=IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.5) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	   DO I5=1,NN
+	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+	      IP=IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	      IORDER(5,IP)=I5
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.6) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	   DO I5=1,NN
+	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+	   DO I6=1,NN
+	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+     $             I6.NE.I4.AND.I6.NE.I5)THEN
+	      IP=IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	      IORDER(5,IP)=I5
+	      IORDER(6,IP)=I6
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.7) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+           IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	   DO I5=1,NN
+	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+	   DO I6=1,NN
+	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+     $             I6.NE.I4.AND.I6.NE.I5)THEN
+	   do i7=1,nn
+	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
+     $             I7.NE.I4.AND.I7.NE.I5.and.i7.ne.i6)THEN
+	      ip =IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	      IORDER(5,IP)=I5
+	      IORDER(6,IP)=I6
+	      IORDER(7,IP)=I7
+	   endif
+	   end do  
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.8) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	   DO I5=1,NN
+	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+	   DO I6=1,NN
+	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+     $             I6.NE.I4.AND.I6.NE.I5)THEN
+	   do i7=1,nn
+	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
+     $             I7.NE.I4.AND.I7.NE.I5.and.i7.ne.i6)THEN
+	   do i8=1,nn
+	   IF(I8.NE.I1.AND.I8.NE.I2.AND.
+     $             I8.NE.I3.AND.I8.NE.I4.AND.
+     $             I8.NE.I5.and.i8.ne.i6.and.
+     $             i8.ne.i7)theN 
+	      ip =IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	      IORDER(5,IP)=I5
+	      IORDER(6,IP)=I6
+	      IORDER(7,IP)=I7
+	      IORDER(8,IP)=I8
+	   endif
+	   enddo
+	   endif
+	   end do  
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   ENDIF
+	   END DO
+	   END DO
+	ELSE IF(NN.EQ.9) THEN
+	   DO I1=1,NN
+	   DO I2=1,NN
+	   IF(I2.NE.I1) THEN
+	   DO I3=1,NN
+	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
+	   DO I4=1,NN
+	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+	   DO I5=1,NN
+	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+	   DO I6=1,NN
+	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.I6.NE.I4.AND.
+     $             I6.NE.I5)THEN
+	   do i7=1,nn
+	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.I7.NE.I4.AND.
+     $             I7.NE.I5.and.i7.ne.i6)THEN
+	   do i8=1,nn
+	   IF(I8.NE.I1.AND.I8.NE.I2.AND.I8.NE.I3.AND.I8.NE.I4.AND.
+     $             I8.NE.I5.and.i8.ne.i6.and.i8.ne.i7)theN
+	   do i9=1,nn
+	   IF(I9.NE.I1.AND.I9.NE.I2.AND.I9.NE.I3.AND.I9.NE.I4.AND.
+     $             I9.NE.I5.and.i9.ne.i6.and.i9.ne.i7.and.i9.ne.i8)theN
+	      ip =IP+1
+	      IORDER(1,IP)=I1
+	      IORDER(2,IP)=I2
+	      IORDER(3,IP)=I3
+	      IORDER(4,IP)=I4
+	      IORDER(5,IP)=I5
+	      IORDER(6,IP)=I6
+	      IORDER(7,IP)=I7
+	      IORDER(8,IP)=I8
+	      IORDER(9,IP)=I9
+	   endif
+        enddo	
+        endif
+        enddo
+        endif
+        end do  
+        ENDIF
+        END DO
+        ENDIF
+        END DO
+        ENDIF
+        END DO
+        ENDIF
+        END DO
+        ENDIF
+        END DO
+      END DO
+      ELSE
+         print *,'PERM: permutations for ',NN,' items' 
+      ENDIF
+      NP=IP
+C	TYPE *,'NN=',NN,' # PERMUTATIONS=',NP
+C	DO IP=1,NP
+C	  WRITE(*,'(<NN>I2)')(IORDER(I,IP),I=1,NN)
+C	END DO
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine INTERPOLV                                         ---
+c***********************************************************************
+      subroutine interpolv(CHINT,wk1,wk2,ch,datev,iun01,nivp,nkp,niv,
+     $     nk, ni, nj   )
+      implicit none
+
+      character*2 ch
+
+      integer ni, nj, n1, n2, n3, nk, nkp, lvl, lvlp
+      integer niv(nk), nivp(nkp)
+      integer iun01, datev, ier, fstlir
+      integer get_dimgrille, glbkeyt, k
+
+      real chint(ni,nj,nkp), wk1(ni,nj), wk2(ni,nj)
+      real dis, diffp
+
+      real,  dimension (:,:,:)  , allocatable :: chst
+
+!      print*
+!      print*,'  Lecture et interpolation du champ ',ch
+!      print*
+
+!     On determine le nombre de niveau verticaux pour le champs CH
+!      print*,"call get_dimgrille"
+!      glbkeyt = get_dimgrille(n1, n2, iun01, ch)
+!      print*,"call get_niv"
+!      call get_niv(niv, nk, glbkeyt, iun01)
+
+      allocate ( chst(ni,nj,nk) )
+
+!      print*, "nombre de niveaux = ", nk
+!      print*,niv(1:nk)
+
+      do k = 1,nk
+!    print*
+         call read_field(chst(:,:,k), datev, iun01, ch, 1.0, niv(k), 
+     $        ni, nj)
+!         ier = fstlir(chst(:,:,k), iun01, n1, n2, n3, datev, ' ', 
+!     $        niv(k), -1, -1, ' ', ch)
+!         call check_field(ier, ch, niv(k), ip2)
+      end do
+
+      lvl = 1
+!     On boucle sur les niveaux pre-selectionnes
+      do lvlp = 1, nkp
+
+!        On cherche le niveau modele sous le niveau recherche
+         do while ( (nivp(lvlp) .gt. niv(lvl)) )
+            lvl = lvl+1
+            if (lvl .gt. nk ) then
+               print*
+               print*,"Erreur: On ne tolere pas les extrapolations"
+               print*,"        vers le bas. Stop !                "
+               print*
+               stop
+            end if
+         end do
+
+         if ( ( nivp(lvlp) .ne. niv(lvl) ) .and.
+     $        ( lvl .ne. 1 ) ) then
+            ! Interpolation
+            wk1(:,:)=chst(:,:,lvl)
+            wk2(:,:)=chst(:,:,lvl-1)
+
+            call gdadgd(wk2,wk1,wk2,1.0,-1.0,ni,nj,0)
+            dis = float(niv(lvl)) - float(niv(lvl-1))
+            call gdmpcn(wk2,wk2,1.0/dis,ni,nj,0)
+            diffp = float(niv(lvl))-float(nivp(lvlp))
+            call gdmpcn(wk2,wk2,diffp,ni,nj,0)
+            call gdadgd(wk1,wk1,wk2,1.0,-1.0,ni,nj,0)
+
+         elseif ( (nivp(lvlp) .ne. niv(lvl)) .and.
+     $            ( lvl .eq. 1) ) then
+           ! Extrapolation
+            print*
+            print*,"Erreur: On ne tolere pas les extrapolations"
+            print*,"        vers le haut. Stop !               "
+            print*
+            stop
+         else
+            ! Niveau existant
+            wk1(:,:)=chst(:,:,lvl)
+         endif
+
+         chint(:,:,lvlp) = wk1(:,:)
+
+      end do
+
+!      print*,"deallocate chst"
+      deallocate ( chst )
+
+      end subroutine interpolv
+
+c***********************************************************************
+c---- Sous-routine GET_NIV                                           ---
+c***********************************************************************
+      subroutine get_niv(NIV, NK, key, iun)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Janvier 2002                                             -
+!     Departement des Sciences de la Terre et de l'Atmosphere  -
+!     UQAM                                                     -
+!     ---------------------------------------------------------- 
+
+      integer nk, key, iun
+      integer niv(K_NIVMAX)
+
+      integer ier
+      integer dateo,deet,npas,ni,nj,nnk,nbits,datyp
+      integer ip1,ip2,dumip3,swa,lng,dltf,ubc
+      integer ig1,ig2,ig3,ig4,extra1,extra2,extra3
+      integer liste(K_NIVMAX),infon
+
+      character*2 nomvar
+      character*1 typvar, grtyp
+      character*12 etiket
+
+      integer fstprm, fstinl
+      integer i, k, ip1rpn, kind
+      real nivr
+
+      real,allocatable,dimension (:) :: ibwork
+
+!
+!     On recupere l'information des parametres RPN
+!
+      ier = fstprm(key,dateo,deet,npas,ni,nj,nnk,nbits,
+     $     datyp,ip1,ip2,dumip3,typvar,nomvar,etiket,grtyp,ig1,ig2,
+     $     ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+
+!
+!     On definit notre vecteur des niveaux pour le fichier d'entree
+!
+      ier = fstinl(iun, ni, nj, nnk, -1, etiket, -1, ip2, dumip3, 
+     $     typvar, nomvar, liste, infon, K_NIVMAX)
+
+      k = 1
+
+      do i=1,infon
+
+         ier = fstprm(liste(i),dateo,deet,npas,ni,nj,nnk,nbits,
+     $        datyp,ip1rpn,ip2,dumip3,typvar,nomvar,etiket,grtyp,
+     $        ig1,ig2,ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+         call convip(ip1rpn, nivr, kind, -1, "", .false.)
+         if (kind.eq.2.and.nivr.ne.0.0) then
+            if (int(nivr).ne.nivr) then
+               print*
+               print*,'Probleme des niveaux: niveaux non-entiers...'
+               print*,'Arret...'
+               print*
+               stop
+            endif
+            call ins_unique_vect(niv, int(nivr), k, K_NIVMAX)
+         endif
+      enddo
+
+      nk = k - 1
+
+      if (nk.gt.0) then
+         allocate(ibwork(nk))
+         call c_sort(niv, ibwork, nk)
+         deallocate(ibwork)
+      else
+         print*
+         print*,'Nombre de niveaux egal a zero.'
+         print*,'Impossible de continuer.'
+         print*
+         stop
+      endif
+
+      end subroutine get_niv
+
+c***********************************************************************
+c---- Sous-routine READ_FIELD                                        ---
+c***********************************************************************
+      subroutine read_field(buffer,datev,iun,nomvar,
+     $     fm,ip1,ni,nj)
+      implicit none
+
+      integer  iun, ip1
+      character*2 nomvar
+      integer datev, dateo, ni, nj
+      real buffer(ni,nj), fm
+
+      integer ier, n1, n2, n3
+      integer fstlir
+      
+      ier = fstlir(buffer, iun, n1, n2, n3, datev, ' ', 
+     $     ip1, -1, -1, ' ', nomvar)
+      call gdmpcn(buffer, buffer, fm, ni, nj, 0)
+      
+      if (ier.lt.0) then
+	 print*
+	 print*,"Le champs suivant n est pas disponible -> STOP !"
+	 print*,"nomvar : ",nomvar
+	 print*,"level  :",ip1
+	 print*
+	 stop
+      endif
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine READ_OROG                                         ---
+c***********************************************************************
+      subroutine read_orog(orog, iun, ni, nj)
+      implicit none
+
+      integer ni, nj, iun
+      real orog(ni,nj)
+
+      integer ier, fstinf, nk, fstlir,ip1,ip2,ip3
+
+      ier=fstlir(orog,iun,ni,nj,nk,-1,' ',0,0,-1,' ','MX')
+
+      if (ier.lt.0) then
+         ier=fstlir(orog,iun,ni,nj,nk,-1,' ',0,0,-1,' ','MF')
+         if (ier.lt.0) then
+            print*
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*,' Cannot read orography! Set field = 0 '
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*
+            orog(:,:)=0.0
+         endif
+      else	
+
+         call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
+      endif	
+      return
+      end
+
+!***********************************************************************
+!---- Sous-routine READ_LANDSEA                                      ---
+!***********************************************************************
+      subroutine read_landsea(landsea, iun, ni, nj)
+      implicit none
+
+      integer ni, nj, iun
+
+      real landsea(ni,nj)
+
+      integer ier, fstinf, nk, fstlir,ip1,ip2,ip3
+
+      ier=fstlir(landsea,iun,ni,nj,nk,-1,' ',0,0,-1,' ','MG')
+
+      if (ier.lt.0) then
+         print*, ier
+         print*
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*
+         landsea(:,:)=0.0
+      end if
+
+      end subroutine read_landsea
+
+c***********************************************************************
+c---- Sous-routine FIND_UVSURFLEV                                    ---
+c***********************************************************************
+      subroutine find_uvsurflev(level,iun,ni,nj)
+      implicit none
+
+      integer  level, iun, ni, nj
+      real buffer(ni,nj)
+
+      integer ier, n1, n2, n3
+      integer fstlir
+
+      integer maxlist, count
+      parameter(maxlist=3)
+      integer list(maxlist)
+
+      list(1)=12000     ! 10m en coord ETA
+      list(2)=93423264  ! 10m en coord Hybride
+      list(3)=1000      ! 1000 hPa en coord Pression (pour UKMetO)
+
+      ier = -1
+      count = 1
+      level = -1
+      do while ( ier   .lt. 0       .and. 
+     $           count .le. maxlist .and.
+     $           level .eq. -1 ) ! On prend le premier niveau trouve
+         ier = fstlir(buffer, iun, n1, n2, n3, -1, ' ',
+     $        list(count), -1, -1, ' ', 'UU')
+         if (ier.ge.0) then
+            level=list(count) 
+         end if
+         count=count+1
+      end do
+
+      if ( level .ne. -1 ) then
+         print*
+         print*,"Niveau pour le vent de surface = ", level
+      else
+         print*
+         print*,"Erreur !!!"
+         print*,"Ancun niveau de vent de surface n'a ete detecte"
+         stop
+      end if
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine LINFIT                                            ---
+c***********************************************************************
+      subroutine linfit(m, f, x, nmax)
+
+      integer nmax
+
+      real  f(nmax), x(nmax)
+      real  m, cov, var, fmoy, xmoy
+
+      integer n
+
+!     Perform a linear regression
+!     f(x) = m x + b
+!     m = covariance(f,x) / variance(x)
+
+      fmoy = 0.0
+      xmoy = 0.0
+      do n = 1, nmax
+         fmoy = fmoy + f(n)
+         xmoy = xmoy + x(n)
+      end do
+      fmoy = fmoy / float(nmax)
+      xmoy = xmoy / float(nmax)
+
+      cov = 0.0
+      var = 0.0
+      do n = 1, nmax
+         cov = cov + (x(n)-xmoy) * (f(n)-fmoy)
+         var = var + (x(n)-xmoy)**2
+      end do
+
+      if (var .ne. 0.0) then
+         m = cov/var
+      else
+         m = 0.0
+      endif
+
+      end subroutine linfit
+
+c***********************************************************************
+c---- Sous-routine SDTOUV                                            ---
+c***********************************************************************
+      SUBROUTINE SDTOUV (U,V,SPD,DIR)
+      implicit none
+!     
+!     DESCRIPTION
+!     Return u and v wind components from speed and direction
+
+!     ARGUMENTS
+      REAL	    U,V         ! Output u/v compts
+      REAL	    SPD,DIR     ! Input speed and direction
+
+!     ----------------------------------------------------------
+!     AUTHORS:       Jim Renwick
+!     CREATION DATE: 01-Jul-1988
+!     ----------------------------------------------------------
+
+      real    pi, degtor
+
+      DEGTOR=K_DEGTOR           !PI/180.0
+
+      U=-1.0*SPD*SIN(DIR*DEGTOR)
+      V=-1.0*SPD*COS(DIR*DEGTOR)
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine SMOOTH_C                                          ---
+c***********************************************************************
+      SUBROUTINE SMOOTH_C (FIN, NI, NJ, SCALE, FOUT, delta_x, delta_y)
+      IMPLICIT NONE
+
+!     DESCRIPTION
+!     Cressman smoother to smooth an input field so that scales
+!     less than SCALE metres are smoothed 
+
+!     ARGUMENTS
+      INTEGER  NI,NJ		!.rl.r	number of columns,rows of input data
+      REAL*8   FIN(NI*NJ)	!.rf.ra input array
+      REAL     SCALE		!.rf.r	scale in metres to smooth
+      REAL*8   FOUT(NI*NJ)	!.wf.ra smoothed output array
+      REAL     delta_x(NI*NJ)      
+      REAL     delta_y(NI*NJ)      
+
+!     ----------------------------------------------------------
+!     AUTHORS:       M.R. SINCLAIR
+!     CREATION DATE: 20-MAY-1993
+!     ----------------------------------------------------------
+
+c     Local variables
+      INTEGER  I, J, II, JJ, IJ, IIJJ, I1, I2, J1, J2, ID, JD, ece
+      REAL     X, Y, x0, y0, XD, YD, DX, DY, RADIUS, WGT
+      real*8   FDUMMY(NI*NJ)
+      REAL     RADIUS_SQ, RSQ, XSQ(NI), YSQ(NJ)
+      REAL*8   WSUM, FSUM
+
+      RADIUS=SCALE
+      RADIUS_SQ=RADIUS*RADIUS	
+
+      DO IJ=1,NI*NJ
+         FDUMMY(IJ)=FIN(IJ)
+      END DO
+
+      DO I=1,NI
+         DO J=1,NJ
+            IJ=I+(J-1)*NI
+
+            X0=float(I)
+            Y0=float(J)
+            DX=delta_x(IJ)
+            DY=delta_y(IJ)
+
+            IF(DX.GT.0.0)THEN
+               XD=RADIUS/DX	!X-DIST in index units to average over
+            ELSE
+               XD=float(NI)
+            ENDIF
+
+            YD=RADIUS/DY
+            I1=X0-XD
+            I1=MAX(I1,1)
+            I2=X0+XD+1.
+            I2=MIN(I2,NI)
+            J1=Y0-YD
+            J1=MAX(J1,1)
+            J2=Y0+YD+1.
+            J2=MIN(J2,NJ)
+            WSUM=0.0
+            FSUM=0.0
+
+c           Put squares in memory to save recomputing
+            DO JJ=J1,J2
+               Y=(float(JJ)-Y0)*DY
+               YSQ(JJ)=Y*Y
+            END DO
+            DO II=I1,I2
+               X=(float(II)-X0)*DX
+               XSQ(II)=X*X
+            END DO
+            ece=0
+
+c           Compute Cressman smoothing
+            DO JJ=J1,J2
+               DO II=I1,I2
+                  IIJJ=II+(JJ-1)*NI
+                  RSQ=XSQ(II)+YSQ(JJ)
+                  IF(RSQ.LE.RADIUS_SQ)THEN
+                     WGT=(RADIUS_SQ-RSQ)/(RADIUS_SQ+RSQ)
+                     WSUM=WSUM+WGT
+                     FSUM=FSUM+WGT*FDUMMY(IIJJ)	
+                     ece=ece+1
+   
+                  ENDIF
+               END DO
+            END DO
+
+            IF(WSUM.EQ.0.0D0)THEN
+               FOUT(IJ)=FDUMMY(IJ)
+            ELSE
+               FOUT(IJ)=FSUM/WSUM
+            ENDIF
+
+         END DO
+      END DO
+
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine UVTOSD                                            ---
+c***********************************************************************
+      SUBROUTINE UVTOSD (U,V,SPD,DIR)
+      implicit none
+
+!     DESCRIPTION
+!     Take u and v wind components and turn into speed and direction
+
+!     ARGUMENTS
+      REAL	    U, V        ! Input u/v compts
+      REAL	    SPD, DIR    ! Output speed and direction
+
+!     ----------------------------------------------------------
+!     AUTHORS:       Jim Renwick
+!     CREATION DATE: 01-Jul-1988
+!     ----------------------------------------------------------
+
+c     Local variables
+      real    degtor 
+
+      DEGTOR=K_DEGTOR           !PI/180.0
+
+      DIR=0.0                   ! Avoid ATAN2 proble
+      IF(U.NE.0.0.OR.V.NE.0.0)DIR=ATAN2(U,V)/DEGTOR+180.0
+      IF(DIR.LT.0.0)DIR=DIR+360.0 ! Keep 0 <-> 360
+      IF(DIR.GT.360.0)DIR=DIR-360.0
+      SPD=SQRT(U*U+V*V)
+
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine EXTEND_LAM_GRID                                   ---
+c***********************************************************************
+      subroutine extend_lam_grid(niext,njext,ig1ext,ig2ext,ig3ext,
+     $     ig4ext,key,ni,nj)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Octobre 2010                       -
+c     ----------------------------------------------------------
+
+      integer ig1ext,ig2ext,ig3ext,ig4ext,ni,nj,niext,njext
+      integer key,ext_i,ext_j,ext
+
+      integer ier, fstprm
+      integer dateo,deet,npas,nnk,nbits,datyp
+      integer ip1,ip2,ip3,swa,lng,dltf,ubc
+      integer ig1,ig2,ig3,ig4,extra1,extra2,extra3
+
+      real d60,pi,pj,dgrw,piext,pjext,dref
+      real xlon0, xlat0, dlon, dlat, xlon0ext, xlat0ext
+      character*2 nomvar
+      character*1 typvar, grtyp
+      character*12 etiket
+
+      ier = fstprm(key,dateo,deet,npas,ni,nj,nnk,nbits,
+     $     datyp,ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,
+     $     ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+
+      if ((grtyp.eq.'N').or.(grtyp.eq.'S')) then
+
+c        On trouve les parametres de le grille source 
+         call cigaxg(grtyp,pi,pj,d60,dgrw,ig1,ig2,ig3,ig4)
+
+c        On definie les paramteres de la grille etendue
+	 dref=d60/1000.0        ! en km
+	 ext=nint(500.0/dref)
+         print*
+         print*,"Extension de :",ext
+         print*
+         niext=ni+2*ext
+         njext=nj+2*ext
+	 ext_i=ext
+	 ext_j=ext
+         piext=pi+float(ext_i)
+         pjext=pj+float(ext_j)
+         call cxgaig(grtyp, ig1ext, ig2ext, ig3ext, ig4ext, piext, 
+     $        pjext, d60, dgrw)
+
+      else if (grtyp.eq.'L') then
+
+c        On trouve les parametres de le grille source
+	 call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
+
+c        On definie les paramteres de la grille etendue
+	 ext_i=nint(5.0/dlon)
+	 ext_j=nint(5.0/dlat)
+	 print*
+         print*,"Extension de :", ext_i, ext_j
+         print*
+	 niext=ni+2*ext_i
+         njext=nj+2*ext_j
+	 xlon0ext = xlon0 - ext_i * dlon 
+	 xlat0ext = xlat0 - ext_j * dlat
+	 call cxgaig(grtyp, ig1ext, ig2ext, ig3ext, ig4ext, xlat0ext,
+     $        xlon0ext, dlat, dlon)
+
+      else
+
+         print*,"[",grtyp,"]"
+         print*
+         print*,"Seulement les grilles de type N, S (PS) et L (LatLon)"
+	 print*,"sont supportees !"
+         print*
+         stop
+
+      endif
+
+      end subroutine extend_lam_grid
+      
+c***********************************************************************
+c---- Sous-routine EXTEND_GLB_GRID                                   ---
+c***********************************************************************
+      subroutine extend_glb_grid(niext, key, ni)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Juillet 2011                       -
+c     ----------------------------------------------------------
+
+      integer ni,niext,nj
+      integer key,ext_i
+
+      integer ier, fstprm
+      integer dateo,deet,npas,nnk,nbits,datyp
+      integer ip1,ip2,ip3,swa,lng,dltf,ubc
+      integer ig1,ig2,ig3,ig4,extra1,extra2,extra3
+
+      real xlon0, xlat0, dlon, dlat
+      character*2 nomvar
+      character*1 typvar, grtyp
+      character*12 etiket
+
+      ier = fstprm(key,dateo,deet,npas,ni,nj,nnk,nbits,
+     $     datyp,ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,
+     $     ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+
+      if (grtyp.eq.'L') then
+	 print*,"grtyp  ",grtyp
+c        On trouve les parametres de le grille source
+	 call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
+      elseif (grtyp .eq. 'A') then
+	 print*,"grtyp  ",grtyp
+	 dlon=360.0/float(ni+1)
+      elseif (grtyp .eq. 'B') then
+	 print*,"grtyp  ",grtyp
+	 dlon=360.0/float(ni)
+      else
+         print*
+         print*,"Seulement les grilles globales de type A, B et L«" 
+         print*,"sont supportees!"
+         print*
+         stop
+      endif
+
+      ext_i=nint(5.0/dlon)
+      print*
+      print*,"Extension en i de :", ext_i
+      print*
+      niext=ni+2*ext_i
+
+      end subroutine extend_glb_grid
+
+c***********************************************************************
+c---- Sous-routine CROP                                              ---
+c***********************************************************************
+      subroutine crop(bufsrc,bufext,ni,nj,niext,njext)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Mars 2010                          -
+c     ----------------------------------------------------------
+
+      integer niext,njext,ni,nj
+      real*8 bufext(niext,njext),bufsrc(ni,nj)
+      integer i,j,ext_i,ext_j
+
+      ext_i=(niext-ni)/2
+      ext_j=(njext-nj)/2
+
+c     Extraire la grille coeur
+      do j=1,nj
+         do i=1,ni
+            bufsrc(i,j)=bufext(i+ext_i,j+ext_j)
+         enddo
+      enddo
+
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine EXTEND                                            ---
+c***********************************************************************
+      subroutine extend(bufext,bufsrc,ni,nj,niext,njext)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Octobre 2010                       -
+c     ----------------------------------------------------------
+
+      integer niext,njext,ni,nj,ext_i,ext_j,ext
+      real bufext(niext,njext),bufsrc(ni,nj),grad,val,gradm
+      real pp,bp,pn,bn
+      integer i,j,iext,jext
+
+c     Extension par extrapolation
+      ext_i=(niext-ni)/2
+      ext_j=(njext-nj)/2
+      if ( ext_i.ne.ext_j ) then
+         print*
+         print*,"Extension non-symetrique !!!"
+         print*
+         stop
+      endif
+      ext=ext_i
+
+c     Variables pour la variation lineaire du gradient de 0 a 1
+c     pente negatuive (gradient diminue avec i ou j)
+      pn=-1.0/(ext-1.0)
+      bn=-ext*pn
+c     pente positive (gradient augmente avec i ou j)
+      pp=1.0/(ext-1.0)
+      bp=-1.0*pp
+
+c     Grille coeur - copier-coller 
+      do j=1,nj
+         do i=1,ni
+            bufext(i+ext,j+ext)=bufsrc(i,j)
+         enddo
+      enddo
+
+c     Extension Ouest
+      do j=ext+1,njext-ext
+	 do i=ext,1,-1
+	    grad=bufext(ext+2,j)-bufext(ext+1,j)
+	    gradm=(pp*i+bp)*grad
+	    val=bufext(i+1,j)-gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Est
+      do j=ext+1,njext-ext
+         do i=niext-ext+1,niext
+	    grad=bufext(niext-ext,j)-bufext(niext-ext-1,j)
+	    gradm=(pn*(i-(niext-ext))+bn)*grad
+	    val=bufext(i-1,j)+gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Sud
+      do j=ext,1,-1
+         do i=ext+1,niext-ext
+	    grad=bufext(i,ext+2)-bufext(i,ext+1)
+	    gradm=(pp*j+bp)*grad
+            val=bufext(i,j+1)-gradm
+	    bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Nord
+      do j= njext-ext+1,njext
+         do i= ext+1,niext-ext
+	    grad=bufext(i,njext-ext)-bufext(i,njext-ext-1)
+	    gradm=(pn*(j-(njext-ext))+bn)*grad
+            val=bufext(i,j-1)+gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Sud-Ouest
+c     a) extension ouest
+      do j=1,ext
+         do i=j,ext
+            iext=ext+2+(ext-i)
+            bufext(i,j)=bufext(iext,j)
+         enddo
+      enddo
+c     b) extension sud
+      do i=1,ext
+         do j=i,ext
+            jext=ext+2+(ext-j)
+            bufext(i,j)=bufext(i,jext)
+         enddo
+      enddo
+c     Extension Nort-Est
+c     a) extension nord
+      do i= niext-ext+1,niext
+         do j=njext-ext+1,njext-ext+1+(i-(niext-ext+1))
+            jext=njext-ext-(j-(njext-ext))
+            bufext(i,j)=bufext(i,jext)
+         enddo
+      enddo
+c     b) extension est
+      do j=njext-ext+1,njext
+         do i=niext-ext+1,niext-ext+1+(j-(njext-ext+1))
+            iext=niext-ext-(i-(niext-ext))
+            bufext(i,j)=bufext(iext,j)
+         enddo
+      enddo
+
+c     Extension Nort-Ouest
+c     a) extension nord
+      do i= 1,ext
+         do j=njext-ext+1,njext-ext+1+(ext-i)
+            jext=njext-ext-(j-(njext-ext))
+            bufext(i,j)=bufext(i,jext)
+         enddo
+      enddo
+c     b) extension ouest
+      do j=njext-ext+1,njext
+         do i=ext-(j-(njext-ext+1)),ext
+            iext=ext+2+(ext-i)
+            bufext(i,j)=bufext(iext,j)
+         enddo
+      enddo
+
+c     Extension Sud-Est
+c     a) extension sud
+      do i=niext-ext+1,niext
+         do j=ext-(i-(niext-ext+1)),ext
+            jext=ext+2+(ext-j)
+            bufext(i,j)=bufext(i,jext)
+         enddo
+      enddo
+c     b) extension est
+      do j=1,ext
+         do i=niext-ext+1,niext-(j-1)
+            iext=niext-ext-(i-(niext-ext))
+            bufext(i,j)=bufext(iext,j)
+         enddo
+      enddo
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine EXTEND_GLB                                        ---
+c***********************************************************************
+      subroutine extend_glb(bufext, bufsrc, global, ni, nj, niext)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron - Juillet 2011                       -
+c     ----------------------------------------------------------
+
+      integer niext,ni,nj,ext_i,global
+      real bufext(niext,nj),bufsrc(ni,nj),grad,val,gradm
+      integer i,j,iext
+
+      ext_i=(niext-ni)/2
+
+c     Grille coeur, copier-coller
+      do j=1,nj
+         do i=1,ni
+            bufext(i+ext_i,j)=bufsrc(i,j)
+         enddo
+      enddo
+
+c     On etend les donnees par repetition en longitude
+
+c     Extension Ouest
+      do j=1,nj
+	 do i=1,ext_i
+	    if (global .eq. 1) then ! i /= ni
+	       iext= ( ext_i + ni ) - (ext_i - i )
+	    else                    ! i = ni
+	       iext= ( ext_i + ni ) - (ext_i - i ) - 1
+	    end if
+	    bufext(i,j)=bufext(iext,j)
+	 enddo
+      enddo
+
+c     Extension Est
+      do j=1,nj
+	 do i=niext-ext_i+1,niext
+	    if (global .eq. 1) then ! i /= ni 
+	       iext=  i - ni
+	    else                    ! i = ni
+	       iext=  i - ni + 1
+	    endif
+	    bufext(i,j)=bufext(iext,j)
+	 enddo
+      enddo
+
+      end subroutine extend_glb
+
+c***********************************************************************
+c---- Sous-routine SDTOUV2D                                          ---
+c***********************************************************************
+      subroutine sdtouv2d(uwind,vwind,speed,dir,ni,nj)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron -  Octobre 2010                      -
+c     ---------------------------------------------------------- 
+      
+c     S-R pour calculer les composantes u et v du vent selon
+c     la vitesse et la direction.
+      
+      integer ni,nj,i,j
+      real uwind(ni,nj),vwind(ni,nj),speed(ni,nj),dir(ni,nj)
+      real DEGTOR
+
+      DEGTOR=K_DEGTOR           !PI/180.0
+
+      do j=1,nj
+         do i=1,ni
+            uwind(i,j)=-1.0*SPEED(i,j)*SIN(DIR(i,j)*DEGTOR)
+            vwind(i,j)=-1.0*SPEED(i,j)*COS(DIR(i,j)*DEGTOR)
+         enddo
+      enddo
+      
+      return
+      end
+
+c***********************************************************************
+c---- Sous-routine DERHN_GR                                          ---
+c***********************************************************************
+      SUBROUTINE DERHN_GR (D,S,XY,FM,DX,DY,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES CENTREES  EN X OU EN Y.
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     XY     CHARACTERE DE CONTROLE POUR LES DERIVEES EN X OU EN Y
+C     FM     FACTEUR MULTIPLICATIF
+C     DX DY  DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+*     
+      CHARACTER*1 XY
+      INTEGER NI,NJ
+      REAL D(NI,NJ),S(NI,NJ),dx(ni,nj),dy(ni,nj),FM
+*     
+      IF ((XY.EQ.'X').OR.(XY.EQ.'x')) THEN
+         DO J=1,NJ
+            CALL DERXXD_GR (D,S,FM,DX,1,J,NI,NJ)
+            DO I=2,NI-1
+               CALL DERXXC_GR (D,S,FM,DX,I,J,NI,NJ)
+            enddo
+            CALL DERXXG_GR (D,S,FM,DX,NI,J,NI,NJ)
+         enddo
+*     
+      ELSE
+         DO I=1,NI
+            CALL DERYYD_GR (D,S,FM,DY,I,1,NI,NJ)
+            DO J=2,NJ-1
+               CALL DERYYC_GR (D,S,FM,DY,I,J,NI,NJ)
+            enddo
+            CALL DERYYG_GR (D,S,FM,DY,I,NJ,NI,NJ)
+         enddo
+*     
+      ENDIF
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERXXC_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERXXC_GR (D,S,FM,DX,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES CENTREES  EN X.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dx(ni,nj),FM
+*     
+      D(I,J) = (S(I+1,J) - S(I-1,J)) * FM / (DX(I,J) + DX(I-1,J))
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERXXD_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERXXD_GR (D,S,FM,DX,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES A DROITE  EN X.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dx(ni,nj),FM
+*     
+      D(I,J) = (S(I+1,J) - S(I,J)) * FM / dx(i,j)
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERXXG_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERXXG_GR (D,S,FM,DX,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES A GAUCHE  EN X.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dx(ni,nj),FM
+*     
+      D(I,J) = (S(I,J) - S(I-1,J)) * FM / dx(i,j)
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERYYC_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERYYC_GR (D,S,FM,DY,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES CENTREES  EN Y.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dy(ni,nj),FM
+*     
+      D(I,J) = (S(I,J+1) - S(I,J-1)) * FM / (dy(i,j) + dy(i,j-1))
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERYYD_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERYYD_GR (D,S,FM,DY,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES A DROITE  EN Y.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dy(ni,nj),FM
+*     
+      D(I,J) = (S(I,J+1) - S(I,J)) * FM / dy(i,j)
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Sous-routine DERYYG_GR                                         ---
+c***********************************************************************
+      SUBROUTINE DERYYG_GR (D,S,FM,DY,I,J,NI,NJ)
+*     
+C     CALCULE UNE DERIVEE HORIZONTALE DE PREMIER ORDRE NORMALE
+C     EN DIFFERENCES FINIES A GAUCHE  EN Y.
+C     VERSION GRILLE LATLON
+*     
+C     D      VECTEUR DE DESTINATION DE DIMENSION NI X NJ
+C     S      VECTEUR SOURCE DE DIMENSION NI X NJ
+C     FM     FACTEUR MULTIPLICATIF
+C     DX     DISTANCE EN METRES ENTRE LES PTS DE GRILLE
+C     I,J    POINT DE GRILLE      
+*     
+      INTEGER NI,NJ,I,J
+      REAL D(NI,NJ),S(NI,NJ),dy(ni,nj),FM
+*     
+      D(I,J) = (S(I,J) - S(I,J-1)) * FM / dy(i,j)
+*     
+      RETURN
+      END
+
+c***********************************************************************
+c---- Fonction REAL_LEN                                              ---
+c***********************************************************************
+      integer function real_len(ch)
+      implicit none
+
+c     Subroutine to calculate real length of a string
+c     
+      character*(*) ch
+*     
+      integer l, length, count, len
+*     
+      length = len(ch)
+      count = length
+      do while (count.ge.1)
+         if (ch(count:count).eq.' ') then
+            length = length - 1
+         else
+            count = 0
+         endif
+         count = count - 1
+      enddo
+
+      real_len = length
+      return
+      end
+
+c***********************************************************************
+c--- Fonction GET_DIMGRILLE                                          ---
+c***********************************************************************
+      integer function get_dimgrille(NI, NJ, iun, getvar)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par Christian Page                                -
+c     Janvier 2002                                             -
+c     Departement des Sciences de la Terre et de l'Atmosphere  -
+c     UQAM                                                     -
+c     ----------------------------------------------------------
+
+      integer ni, nj
+      integer iun
+      character*2 getvar
+
+      integer nnk, ier
+      integer fstinf, fstfrm, fclos
+*     
+c     On obtient la dimension de la grille
+*     
+      get_dimgrille = fstinf(iun, ni, nj, nnk, -1, ' ', -1, -1, -1,
+     $     ' ', getvar)
+
+      if (get_dimgrille.lt.0) then
+         print*
+         print*,'Le champ ',getvar,' n''est pas disponible.'
+         print*,'Impossible de continuer.'
+         print*
+         ier = fstfrm(iun)
+         ier = fclos(iun)
+         stop
+      endif
+
+      return
+      end
+
+c***********************************************************************
+c---  Fonction FSTPRM_DIO                                            ---
+c***********************************************************************
+      integer function fstprm_dio(DATEO, DEET, TYPVAR, GRTYP,
+     $     IG1, IG2, IG3, IG4, key)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par JF Caron                                      -
+c     Janvier 2002                                             -
+c     Departement des Sciences de la Terre et de l'Atmosphere  -
+c     UQAM                                                     -
+c     ----------------------------------------------------------
+
+      integer key
+
+      integer ier
+      integer dateo,deet,npas,ni,nj,nnk,nbits,datyp
+      integer ip1,ip2,ip3,swa,lng,dltf,ubc
+      integer ig1,ig2,ig3,ig4,extra1,extra2,extra3
+
+      character*2 nomvar
+      character*1 typvar, grtyp
+      character*12 etiket
+
+      integer fstprm
+
+      ier = fstprm(key,dateo,deet,npas,ni,nj,nnk,nbits,
+     $     datyp,ip1,ip2,ip3,typvar,nomvar,etiket,grtyp,ig1,ig2,
+     $     ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
+
+      fstprm_dio=ier
+
+      return
+      end
+
+c***********************************************************************
+c---  Sous-routine CALC_DXDY_GR                                      ---
+c***********************************************************************
+      subroutine calc_dxdy_gr(DX, DY, lat, lon, ni, nj)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par Jean-Francois Caron                           -
+c     Janvier 2004                                             -
+c     Departement des Sciences de la Terre et de l'Atmosphere  -
+c     UQAM                                                     -
+c     ----------------------------------------------------------
+
+c     ---------------------------------------------------------------
+c     ----------  Definition des vecteurs  utilises  ----------------
+c     
+c     dx,dy ---> champ(ni,nj) des distances entre les mailles       -
+c     lat   ---> champ(ni,nj) des latitudes                         -
+c     lon   ---> champ(ni,nj) des longitudes                        -
+c     
+c     ---------------------------------------------------------------
+c     
+c     DX et DY sont calcules a partir des lat-lon de chacun des points
+c     
+c     Calcul utilisant la Formule d'Haversine 
+c     Reference: R.W. Sinnott,'Virtues of Haversine',Sky and Telescope,
+c     vol.68, no.2, 1984, p.159)
+c     
+
+      integer ni, nj
+      real dx(ni,nj), dy(ni,nj), lat(ni,nj), lon(ni,nj)
+      real dlat, dlon, lat1, lat2, a, c, R
+
+      integer i, j
+      real npi
+
+      npi=K_PI
+      R = K_EARTHR
+
+      do j=1,nj
+         do i=1,ni
+
+            if (i.eq.ni) then
+               dlon = abs(lon(i,j) - lon(i-1,j))
+               dlat = abs(lat(i,j) - lat(i-1,j))
+               lat1 = lat(i,j)
+               lat2 = lat(i-1,j)
+            else
+               dlon = abs(lon(i+1,j) - lon(i,j))
+               dlat = abs(lat(i+1,j) - lat(i,j))
+               lat1 = lat(i,j)
+               lat2 = lat(i+1,j)
+            endif
+
+            a = (sin(dlat/2.0)*npi/180.0)**2 + 
+     $           cos(lat1*npi/180.0)*
+     $           cos(lat2*npi/180.0)*
+     $           (sin(dlon/2.0*npi/180.0))**2
+            c = 2.0 * atan2(sqrt(a),sqrt(1-a))
+            dx(i,j)= R * c
+
+            if (j.eq.nj) then
+               dlat = abs(lat(i,j) - lat(i,j-1))
+               dlon = abs(lon(i,j) - lon(i,j-1))
+               lat1 = lat(i,j)
+               lat2 = lat(i,j-1)
+            else
+               dlat = abs(lat(i,j+1) - lat(i,j))
+               dlon = abs(lon(i,j+1) - lon(i,j))
+               lat1 = lat(i,j)
+               lat2 = lat(i,j+1)
+            endif
+
+            a = (sin(dlat/2.0*npi/180.0))**2 + 
+     $           cos(lat1*npi/180.0)*
+     $           cos(lat2*npi/180.0)*
+     $           (sin(dlon/2.0*npi/180.0))**2
+            c = 2.0 * atan2(sqrt(a),sqrt(1-a))
+            dy(i,j)= R * c
+
+         enddo
+      enddo
+
+      return
+      end
+
+c***********************************************************************
+c---  Sous-routine INS_UNIQUE_VECT                                   ---
+c***********************************************************************
+      subroutine ins_unique_vect(S,val,elem,nk)
+      implicit none
+
+c     Sous-routine qui insere un element dans un vecteur 1D si cette
+c     valeur n'existe pas deja : val + vecteur => integer
+
+c     s    Vecteur source de dimension nk
+c     val  Valeur a inserer si necessaire
+c     elem Element a remplir
+c     nk   Dimension
+*     
+c     *****************************************
+c     Auteur : Christian Page
+c     Departement des sciences de la Terre UQAM
+c     Mars 1996
+c     *****************************************
+*     
+      integer nk,k,elem,trouve
+      integer s(nk), val
+
+      trouve = 0
+
+      do k=1,(elem-1)
+         if (val.eq.s(k)) then
+            trouve = 1
+         endif
+      enddo
+
+      if (trouve.eq.0) then
+         s(elem) = val
+         elem = elem + 1
+      endif
+
+      return
+      end
+
+c***********************************************************************
+c---  Sous-routine C_SORT                                            ---
+c***********************************************************************
+      subroutine c_sort(D,work,ni)
+      implicit none
+*     
+c     Tri un vecteur en ordre croissant
+*     
+c     D      vecteur de source et de destination de dimension ni
+c     work   vecteur de travail de dimension ni
+c     ni     dimension des vecteurs
+*     
+      integer i,j,k,l,m,ni
+      integer D(ni),work(ni),s,t
+
+      i = 1
+ 10   k = i
+ 20   j = i
+      i = i + 1
+      if ( j .eq. ni ) goto 30
+      if ( D(i) .ge. D(j) ) goto 20
+      work(k) = i
+      goto 10
+ 30   if ( k .eq. 1 ) return
+      work(k) = ni + 1
+ 40   m = 1
+      l = 1
+ 50   i = l
+      if ( i .gt. ni ) goto 120
+      s = D(i)
+      j = work(i)
+      k = j
+      if ( j .gt. ni ) goto 100
+      t = D(j)
+      l = work(j)
+      D(i) = l
+ 60   if ( s .gt. t ) goto 70
+      work(m) = s
+      m = m + 1
+      i = i + 1
+      if ( i .eq. k ) goto 80
+      s = D(i)
+      goto 60
+ 70   work(m)= t
+      m = m + 1
+      j = j + 1
+      if ( j .eq. l ) goto 110
+      t = D(j)
+      goto 60
+ 80   work(m) = t
+      k = m + l - j
+      i = j - m
+ 90   m = m + 1
+      if ( m .eq. k ) goto 50
+      work(m) = D(m+i)
+      goto 90
+ 100  D(i) = j
+      l = j
+ 110  work(m) = s
+      k = m + k - i
+      i = i - m
+      goto 90
+ 120  i = 1
+ 130  k = i
+      j = D(i)
+ 140  D(i) = work(i)
+      i = i + 1
+      if ( i .lt. j ) goto 140
+      work(k) = i
+      if ( i .le. ni ) goto 130
+      if ( k .eq. 1 ) return
+      goto 40
+      end
+*

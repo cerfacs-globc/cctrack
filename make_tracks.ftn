@@ -1,0 +1,1916 @@
+      program make_tracks
+      implicit none
+!
+!||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+!     ----------------
+!     Make_Tracks v2.3
+!     ----------------
+!     Programme pour determiner de facon objective les trajectoires 
+!     des depressions et anticyclones.
+!
+!||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+!
+!     > Code porte sous SVN en Septembre 2015.
+!
+!     **** VERSIONS PRE SVN ... ***
+!
+!     > Version 2.2 - J.-F. Caron, Aout 2014
+!     -----------------------------------------
+!     - Mode WarmStart permettant de specifier les positions des 
+!       cyclones actifs au temps initial
+!     - Option "-onlywarm" pour suivre seulement les cyclones
+!       specifies dans le fichier ./warmstart.txt
+!     - Prise en compte du masque Terre-Mer pour les cyclones tropicaux
+!
+!     > Version 2.1 - J.-F. Caron, Septembre 2011 
+!     -----------------------------------------
+!     - Ajout du suivi des cyclones tropicaux et des diagnostics pour 
+!       determiner la phase des cyclones. Idees tirees des articles de 
+!       M. R. Sinclair (2004, MWR) et de R. E. Hart (2003, MWR), 
+!       ainsi que du programme track_hurricane.F (par K. Winger, 
+!       L.-P. Caron et A.-M. Leduc).
+!     -----------------------------------------
+!
+!     > Version 2.0 - J.-F. Caron, Juillet 2011
+!     -----------------------------------------
+!     - Refonte majeure du code : version non-implicite, 
+!       allocation dynamique des vecteurs lies a la grille, utilisation
+!       des fonctions EZSCINT, support des grilles Lat-Lon 
+!       incluant les grilles globales, redistribution du code entre 2 
+!       librairies ( libtracks et libtracks_tools ).
+!     -----------------------------------------
+!
+!     > Version 1.4 - J.-F. Caron, Automne 2010
+!     -----------------------------------------
+!     - Reformulation du calcul des probabilites (variable PROB).
+!     - Extension pour attenuer les effets du filtre sur le tourbillon
+!       en bordure de la grille (pour les LAM).
+!     - Imposition de valeurs seuils sur le changement de direction
+!       de deplacement. 
+!     - Ajustements pour suivi en pression.
+!     -----------------------------------------
+!
+!     > Version 1.3 - J.-F. Caron, Printemps-Ete 2007	
+!     -----------------------------------------
+!     - Filtrage deplace APRES le calcul du tourbillon.
+!     - Re-organisation partielle du code.
+!       (e.g. regroupement des S-R dans la librairie LIBTRACKS)
+!     -----------------------------------------
+!
+!     > Version 1.2 - Milka Radojevic, SCA/UQAM, Octobre 2004
+!     -----------------------------------------
+!     - Correction du calcul de la circulation.
+!     [ Activite des cyclones extra-tropicaux simules par le modele            
+!       couple canadian de circulation globale (MCCG3)" - Memoire de           
+!       maitrise, UQAM, 2006 ]
+!     -----------------------------------------
+!
+!     > Version 1.1 - Corina Rosu Costea, SCA/UQAM, Nov 2003-Avr 2004
+!     -----------------------------------------
+!     - Adaptation au format RPN.
+!     - On prend la moitie du vent a 500 hPa au lieu du vent 
+!       climatologique pour estimer la vitesse de deplacement.
+!     [ Les caracteristiques des cyclones et l'apport d'eau dans les           
+!       bassins versants du Quebec" - Memoire de maitrise, UQAM, 2005 ]
+!     -----------------------------------------
+!
+!     > Version 1.0 - Aout 2003
+!     -----------------------------------------
+!     - Reception du code de Sinclair
+!     [ Mark R. Sinclair, 1997: "Objective Identification of Cyclones
+!       and Their Circulation Intensity, and Climatology", Weather and
+!       Forecasting, 12, 3, 595-612. ]
+!     -----------------------------------------
+!
+!||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+!     
+#include "tracks_cte.h"
+!     
+      integer maxtim, maxtrk, maxctr
+      parameter(maxtim=4000)    ! Nombre de pas de temps max.
+      parameter(maxtrk=500)     ! Nombre de trajectoires actives max.
+      parameter(maxctr=150)     ! Nombre de centres max. par trajectoire
+
+!     Variables pour les OPTIONS
+      integer naj               ! Nombre de pas de temps par jour (24 hrs)
+      integer npt               ! Temps de vie minimum (en pas de temps) 
+                                ! d'une trajectoire
+      integer level             ! Niveau vertical suivi
+      integer fvort             ! Cressman smoothing radius (km) for vort
+      integer fpres             ! Cressman smoothing radius (km) for press
+      integer anal              ! >= 0 ( < 0) analyses (previsions) en entree
+      integer nofst             ! /=0 ( =0 pas d') ecriture en fichier std 
+      integer isign             ! +1 (-1) on suit les cyclones (anticyclones)
+      integer vortcnt           ! 0 ( /=0) suivi en tourbillon (pression)
+      integer anticycl          ! 0 ( /=0) on suit les anticyclones (cyclones)
+      integer phase             ! >=0 on diagnotic la phase des cyclones
+      integer tropic            ! >=0 on suit uniquement les cyclones tropicaux
+      integer latmin            ! Frontiere Sud
+      integer latmax            ! Frontiere Nord
+      integer lonmin            ! Frontiere Ouest
+      integer lonmax            ! Frontiere Est
+      integer relocp            ! 0 ( /=0) on (ne) repositionne (pas) les 
+                                ! centres de pression filtree
+      integer onlywarm          ! 0 = On suit seulement les cyclones specifies
+                                !     dans le fichier ./warmstart.txt
+
+      integer silent            ! Regle le niveau d'ecriture a l'ecran
+      integer hcrit             ! Valeur seuil pour les epaisseurs
+      integer bcrit             ! Valeur seuil pour le terme de baroclinicite
+      integer tcrad             ! Rayon d'un cyclone tropical
+      integer tdwind            ! Valeur seuil de vent pour considerer un
+                                ! cyclone comme depression tropicale
+      integer slevel            ! Niveau pour le vent de surface (10m)
+
+      real    dist_crit         ! Rayon du cercle de recherche (en deg)
+      real    vc                ! Valeur seuil pour le tourbillon
+
+      logical vort_c            ! True (False) : on suit les extremes
+                                ! de tourbillon (pression)
+      logical do_circ           ! True : on calcule la circulation
+
+      character*12 output_type  ! format des sorties ascii: xml ou legacy
+
+!     Variable pour le temps
+      integer time(maxtim)      ! Temps encodes (yyyymmddhh)
+      integer year(maxtim)      ! Annees (yyyy)
+      integer month(maxtim)     ! Mois (mm)
+      integer day(maxtim)       ! Jours (jj)
+      integer hour(maxtim)      ! Heures (hh)
+      integer tstamp(maxtim)    ! Liste des "dateo"
+      
+      character*3 mnth(12)      ! Mois de l'annee en abrege
+
+      integer ntimes            ! Nombre de pas de temps
+      integer n                 ! Compteur pour les pas de temps
+      integer tstep             ! Pas de temps (en heures)
+      integer npas              ! Variable FST npas
+      integer dateo             ! Varaible FST dateo
+      integer hi                ! Heure initiale de la prevision
+      integer hf                ! Heure finale de la prevision
+      integer ip2               ! Variable FST ip2
+      integer deet              ! Variable FST deet
+
+!     Variable pour les trajectoires
+      real    trk_lat(maxctr,maxtrk)   ! Latitude
+      real    trk_lon(maxctr,maxtrk)   ! Longitude
+      real    trk_lat_f(maxctr,maxtrk) ! Latitude
+      real    trk_lon_f(maxctr,maxtrk) ! Longitude
+      real    trk_vort(maxctr,maxtrk)  ! Tourbillon
+      real    trk_press(maxctr,maxtrk) ! Pression
+      real    trk_u(maxctr,maxtrk)     ! Estimee pour la vit. de deplacement
+      real    trk_v(maxctr,maxtrk)     ! Estimee pour la vit. de deplacement
+      real    trk_circ(maxctr,maxtrk)  ! Circulation ou Classe
+      real    trk_b(maxctr,maxtrk)     ! Baroclinicite de bas niveaux
+      real    trk_vtl(maxctr,maxtrk)   ! Structure de bas niveaux
+      real    trk_vtu(maxctr,maxtrk)   ! Structure de hauts niveaux
+      real    trk_maxqr(maxctr,maxtrk) ! Max de tourbillon a 850 hPa
+      real    trk_maxdz(maxctr,maxtrk) ! Max d'epaisseur 250-850 hPa
+      real    trk_maxuv(maxctr,maxtrk) ! Max de vent en surface
+
+      real,  dimension (:,:)  , allocatable ::  pmatch  ! Probabilite d'association
+      
+      integer trk_time(maxctr,maxtrk) ! Indice du temps (n)
+      integer trk_nctr(maxctr)        ! Nombre de centres d'une trajectoire
+      
+      logical trk_closed(maxctr,maxtrk) ! Systeme ferme ou ouvert
+      
+      logical trk_used(maxtrk)  ! Trajectoire active ou terminee
+      logical trk_warm(maxtrk)  ! Trajectoire initialise par un WarmStart
+      
+      real    lat_est           ! Position (Latitude) estimee
+      real    lon_est           ! Position (Longitude) estimeee
+      real    p_est             ! Pression centrale estimee
+      real    v_est             ! Tourbillon central estimeee
+      real    prob              ! Probabilite d'association trk-ctr
+      
+      integer it                ! Compteur pour les trajectoires      
+      integer itt               ! Compteur pour les trajectoires
+      integer n_track           ! Nombre de trajectoires actives
+      integer n_track_tot       ! Nombre de trajectoires totales
+      integer imatch            ! Compteur pour les associations trk-ctr
+      integer nn                ! Nombre de centres d'une trajectoire
+      integer n_matches         ! Nombre d'associations probables trk-ctr 
+
+!     Variables pour le filtrage (filtre de Cressman)
+      real    srad              ! Rayon (m) de filtrage pour le tourbillon
+      real    srad2             ! Rayon (m) de filtrage pour PNM et GZ
+      real    sraduv            ! Rayon (m) de filtrage pour les vents
+      
+!     Variables reliees aux donnees modeles 2D (ni*nj) et 3D(ni*nj*nk)
+      real,  dimension (:,:,:), allocatable :: h3d      ! Hauteur multi-niveau
+
+      real,  dimension (:,:)  , allocatable :: h        ! Hauteur ou Epaisseur
+      real,  dimension (:,:)  , allocatable :: hnf      ! Hauteur non filtre
+      real,  dimension (:,:)  , allocatable :: hl       ! Epaisseur bas niveau
+      real,  dimension (:,:)  , allocatable :: u        ! Estimation de la vit.
+      real,  dimension (:,:)  , allocatable :: v        ! de deplacement en x et y
+      real,  dimension (:,:)  , allocatable :: press    ! PNM
+      real,  dimension (:,:)  , allocatable :: pressnf  ! PNM non filtre
+      real,  dimension (:,:)  , allocatable :: vort     ! Tourbillon
+      real,  dimension (:,:)  , allocatable :: vct      ! Tourbillon avec masque
+      real,  dimension (:,:)  , allocatable :: vcrit    ! Valeur seuil pour vort
+      real,  dimension (:,:)  , allocatable :: orog     ! Orographie
+      real,  dimension (:,:)  , allocatable :: high_terrain ! Variable pour vcrit
+      real,  dimension (:,:)  , allocatable :: windspd  ! Vitesse du vent
+      real,  dimension (:,:)  , allocatable :: utl      ! Vent thermique
+      real,  dimension (:,:)  , allocatable :: vtl      ! Vent thermique
+      real,  dimension (:,:)  , allocatable :: landsea  ! Masque Terre-Mer
+
+      real,  dimension (:,:)  , allocatable :: lat      ! Latitude
+      real,  dimension (:,:)  , allocatable :: lon      ! Longitude
+      real,  dimension (:,:)  , allocatable :: delta_x  ! Distance entre les pts
+      real,  dimension (:,:)  , allocatable :: delta_y  ! de grille en x et y
+      real,  dimension (:,:)  , allocatable :: work1    ! Vecteur de travail
+      real,  dimension (:,:)  , allocatable :: work2    ! Vecteur de travail
+      real,  dimension (:,:)  , allocatable :: work3    ! Vecteur de travail
+
+      real*8, dimension (:,:) , allocatable :: press8   ! PNM
+      real*8,dimension  (:,:) , allocatable :: pressnf8 ! PNM non filtre
+      real*8, dimension (:,:) , allocatable :: vort8    ! Tourbillon
+      real*8, dimension (:,:) , allocatable :: h8       ! Hauteur ou Epaisseur 
+      real*8, dimension (:,:) , allocatable :: work8    ! Vecteur de travail
+
+!     Variables pour la grille etendue (niext*njext)
+      real,  dimension (:,:)  , allocatable :: bufext   ! Champ etendu
+      real,  dimension (:,:)  , allocatable :: lonext   ! Latitude
+      real,  dimension (:,:)  , allocatable :: latext   ! Longitude
+      real,  dimension (:,:)  , allocatable :: delta_xext ! Distance entre les pts
+      real,  dimension (:,:)  , allocatable :: delta_yext ! de grille en x et y
+
+      real*8, dimension (:,:) , allocatable :: bufext8  ! Champ etendu
+
+!     Variables pour le traitement des centres de pression
+      real,  dimension (:)    , allocatable :: p_lat    ! Latitude
+      real,  dimension (:)    , allocatable :: p_lon    ! Longitude
+      real,  dimension (:)    , allocatable :: p_lat_f  ! Latitude
+      real,  dimension (:)    , allocatable :: p_lon_f  ! Longitude
+      real,  dimension (:)    , allocatable :: p_xf_f   ! Point de grille en x
+      real,  dimension (:)    , allocatable :: p_yf_f   ! Point de grille en y
+
+!     Variables pour le traitement des centres de tourbillon
+      real,  dimension (:)    , allocatable :: v_lat    ! Latitude
+      real,  dimension (:)    , allocatable :: v_lon    ! Longitude
+      real,  dimension (:)    , allocatable :: v_xf     ! Point de grille en x
+      real,  dimension (:)    , allocatable :: v_yf     ! Point de grille en y
+
+!     Variables pour le traitement des centres de tourbillon
+      real,  dimension (:)    , allocatable :: z_lat    ! Latitude
+      real,  dimension (:)    , allocatable :: z_lon    ! Longitude
+
+!     Variables pour le traitement des centres suivis
+      real,  dimension (:)    , allocatable :: c_vort   ! Tourbillon
+      real,  dimension (:)    , allocatable :: c_press  ! PNM
+      real,  dimension (:)    , allocatable :: c_lat    ! Latitude
+      real,  dimension (:)    , allocatable :: c_lon    ! Longitude
+      real,  dimension (:)    , allocatable :: c_lat_f  ! Latitude
+      real,  dimension (:)    , allocatable :: c_lon_f  ! Longitude
+      real,  dimension (:)    , allocatable :: c_xf     ! Point de grille en x
+      real,  dimension (:)    , allocatable :: c_yf     ! Point de grille en y
+      real,  dimension (:)    , allocatable :: c_circ   ! Circulation ou Classe
+      real,  dimension (:)    , allocatable :: c_u      ! Estimation de la vit. 
+      real,  dimension (:)    , allocatable :: c_v      ! de deplacement en x et y
+      real,  dimension (:)    , allocatable :: c_b      ! Baroclinicite de bas niveau
+      real,  dimension (:)    , allocatable :: c_vtl    ! Structure de bas niveau
+      real,  dimension (:)    , allocatable :: c_vtu    ! Structure de haut niveau
+      real,  dimension (:)    , allocatable :: c_maxqr  ! Maximum de tourbillon
+      real,  dimension (:)    , allocatable :: c_maxdz  ! Maximum d'epaiseur
+      real,  dimension (:)    , allocatable :: c_maxuv  ! Vent de surface maximum
+      real,  dimension (:)    , allocatable :: c_landsea ! Vent de surface maximum
+      real,  dimension (:)    , allocatable :: wc_lat   ! Latitude - WarmStart
+      real,  dimension (:)    , allocatable :: wc_lon   ! Longitude - WarmStart
+
+      logical,  dimension (:) , allocatable :: c_warm   ! Centre actif au temp n = 1
+      logical,  dimension (:) , allocatable :: c_closed ! Systeme ouvert ou ferme
+      logical,  dimension (:) , allocatable :: c_used   ! Centre utilise ou non
+
+      integer,  dimension (:) , allocatable :: icm      ! Centres avec prob > 0 
+      integer,  dimension (:) , allocatable :: itm      ! Tracks associes a icm
+
+      integer,  dimension (:)  ,allocatable :: nivh     ! Niv. de geopot. interpole
+
+      integer nivhm(K_NIVMAX)   ! Nombre de niveau de geopotentiel en entree
+      integer nc                ! Nombre de centres max
+      integer iv                ! Compteur des centres de tourbillon
+      integer ip_f              ! Compteur des centres de pression filtree
+      integer ip                ! Compteur des centres de pression brute
+      integer iz                ! Compteur des centres d'epaisseur
+      integer ic                ! Compteur pour les centres suivis
+      integer n_new             ! Nombre de nouveaux centres detectes
+      integer n_warm            ! Nombre de centre dans le fichier ./warmstart.txt
+
+      integer ihem              ! Facteur pour la conversion du tourbillon
+
+      integer nkh               ! Nombre de niveaux de GZ interpolle
+      integer nkhm              ! Nombre de niveaux de GZ en entree
+
+      real    vort_t            ! Valeur interpollee du tourbillon
+      real    dist              ! Distance (m)
+      real    dummy             ! Valeur sans usage
+      real    f_lat             ! Latitude du centre le plus pres
+      real    f_lon             ! Longitude du centre le plus pres
+
+      logical found             ! True = un extreme ce trouve en ce point i,j
+      logical start             ! True = on demarre une trajectoire
+
+!     Variables associees aux fichers d'entrees/sorties
+      character*1024 infile     ! Fichier d'entre en format RPN
+      character*1024 outfile    ! Base pour les fichier de sorties
+      character*1024 ofname1    ! Fichier de sortie #1
+      character*1024 ofname2    ! Fichier de sortie #2
+
+      integer iun01             ! Unite pour le fichier d'entree
+      integer iun51             ! Unite pour le fichier de sortie #1
+      integer iun52             ! Unite pour le fichier de sortie #2
+      integer iun60             ! Unite pour le fichier ./warmstart.txt
+      integer real_len          ! Fonction pour la calcul de la longueur d'un string 
+      integer fnom              ! Fonction ARMNLIB
+      integer fstouv            ! Fonction ARMNLIB
+      integer fstopc            ! Fonction ARMNLIB
+      integer fstfrm            ! Fonction ARMNLIB
+      integer fclos             ! Fonction ARMNLIB
+      integer nrecs(3)          ! Valeur retournee par FSTOUV
+      integer ier               ! Valeur retournee par FSTLIR
+
+      logical warmstart         ! Vrai si un fichier ./warmstart.txt existe
+
+!     Variables pour la manipulation des grilles
+      real    xpf               ! Point de grille interpole en x
+      real    ypf               ! Point de grille interpole en y
+
+      character*2 getvar        ! Variable pour l'obtenteion des parametres de grille
+      character*1 typvar        ! Type des variable RPN
+      character*1 grtyp         ! Type de grille
+
+      integer global            ! 0 = grille LAM, 1 = grille globale ou ni /= i
+                                ! 2 = grille globale ou ni=i (repetition)
+      integer istart            ! Point de grille de depart en i
+      integer jstart            ! Point de grille terminal en j
+      integer iend              ! Point de grille de depart en i
+      integer jend              ! Point de grille terminal en j
+      integer gdid              ! Descripteur de grille pour EZSCINT
+      integer gdidext           ! Descripteur de la grille etendue pour EZSCINT
+      integer gdll              ! Fonction EZSCINT
+      integer gdxysval          ! Fonction EZSCINT
+      integer gdllsval          ! Fonction EZSCINT
+      integer ezqkdef           ! Fonction EZSCINT
+      integer gdxyfll           ! Fonction EZSCINT
+      integer gdllfxy           ! Fonction EZSCINT
+      integer i                 ! Compteur pour les points de grille en x
+      integer j                 ! Compteur pour les points de grille en y
+      integer ni                ! Dimension de la grille en x
+      integer nj                ! Dimension de la grille en y
+      integer ip1               ! Variable FST ip1
+      integer ip3               ! Variable FST ip3
+      integer glbkey            ! Descripteur pour la grille
+      integer glbkeygz          ! Descripteur pour les niveaux de GZ
+      integer get_dimgrille     ! Fonction pour les dimensions de la grille
+      integer fstprm_dio        ! Fonction pour les parametres de grille
+      integer ig1               ! Descripteur FST de la grille d'origine
+      integer ig2               ! " "
+      integer ig3               ! " "
+      integer ig4               ! " "
+      integer ig1ext            ! Descripteur FST de la grille entedue
+      integer ig2ext            ! " "
+      integer ig3ext            ! " "
+      integer ig4ext            ! " "
+      integer niext             ! Dimension de la grille etendue en x
+      integer njext             ! Dimension de la grille etendue en y
+
+!**********************************************************************
+!     Traitement des cles d'appel
+!**********************************************************************
+      call get_options(SILENT, IP3, GETVAR, INFILE, OUTFILE,
+     $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
+     $     ANAL, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
+     $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
+     $     ONLYWARM, OUTPUT_TYPE)
+
+!**********************************************************************
+!     Initialisations
+!**********************************************************************
+      data mnth/'JAN','FEB','MAR','APR','MAY','JUN',
+     $     'JUL','AUG','SEP','OCT','NOV','DEC'/
+
+      iun01 = 1
+      iun51 = 51
+      iun52 = 52
+      iun60 = 60
+
+      ofname1 = outfile(1:real_len(outfile))//'.fst' ! fichier sortie RPN
+      if ( trim(output_type) == 'xml' ) then
+         ofname2 = outfile(1:real_len(outfile))//'.xml' ! fichier sortie XML
+      else
+         ofname2 = outfile(1:real_len(outfile))//'.txt' ! fichier sortie TXT
+      end if
+
+!     Ouverture fichier input RPN
+      ier = fnom(iun01, infile(1:real_len(infile)), 'RND', 0)
+      nrecs(1) = fstouv(iun01, 'RND')
+
+      if (nofst.ne.0) then
+!     Ouverture fichier output RPN
+         ier = fnom(iun51, ofname1, 'RND', 0)
+         nrecs(2) = fstouv(iun51, 'RND')
+      endif
+
+!     Ouverture du fichier des trajectoires (txt)
+      open(unit=iun52, file=ofname2, status='unknown', form='FORMATTED')
+
+!     FSTD: On ne tolere pas les erreurs a partir de warning et plus
+      ier = fstopc('TOLRNC','WARNIN',.false.)
+
+!**********************************************************************
+!     Parametres des grilles
+!**********************************************************************
+!     Dimension de la grille en entree
+      glbkey = get_dimgrille(ni, nj, iun01, getvar)
+
+!     Parametres pour l'ecriture en fichier standard RPN
+      ier=fstprm_dio(dateo,deet,typvar,grtyp,ig1,ig2,ig3,ig4,glbkey)
+
+!     Parametres pour EZSCINT
+      gdid = ezqkdef(ni,nj,grtyp,ig1,ig2,ig3,ig4,iun01)
+
+!     Nombre de niveau de geopotentiel
+      if (tropic .ge. 0 .or. phase .ge. 0) then
+         nkh = 13
+      end if
+
+!**********************************************************************
+!     Allocation de memoire dynamique
+!**********************************************************************
+!     Grille d'origine
+      allocate ( h(ni,nj), hnf(ni,nj), u(ni,nj), v(ni,nj) )
+      allocate ( press(ni,nj), pressnf(ni,nj) )
+      allocate ( vort(ni,nj), vct(ni,nj), vcrit(ni,nj) )
+      allocate ( windspd(ni,nj))
+      allocate ( orog(ni,nj), high_terrain(ni,nj) )
+      allocate ( lat(ni,nj), lon(ni,nj) )
+      allocate ( delta_x(ni,nj), delta_y(ni,nj) )
+      allocate ( work1(ni,nj), work2(ni,nj), work3(ni,nj) )
+
+      allocate ( press8(ni,nj), vort8(ni,nj), h8(ni,nj), work8(ni,nj) )
+      allocate ( pressnf8(ni,nj))
+
+!     Centres
+      nc = nint(ni*nj/4.0)
+      allocate ( p_lat(nc), p_lon(nc) )
+      allocate ( p_lat_f(nc), p_lon_f(nc) )
+      allocate ( p_xf_f(nc), p_yf_f(nc) )
+      allocate ( v_lat(nc), v_lon(nc) )
+      allocate ( v_xf(nc), v_yf(nc) )
+
+      if (tropic .ge. 0 .or. phase .ge. 0) then
+         allocate ( nivh(nkh) )
+         allocate ( h3d(ni,nj,nkh) )
+         allocate ( c_b(nc) )
+         allocate ( c_maxuv(nc) )
+         allocate ( hl(ni,nj), utl(ni,nj), vtl(ni,nj))
+         allocate ( z_lat(nc), z_lon(nc) )
+         allocate ( c_maxqr(nc), c_maxdz(nc) )
+         allocate ( c_vtl(nc), c_vtu(nc) )
+      end if
+      if (tropic .ge. 0) then
+         allocate ( landsea(ni,nj) )
+         allocate ( c_landsea(nc))
+      end if
+
+      allocate ( c_vort(nc), c_press(nc), c_lat(nc), c_lon(nc) )
+      allocate ( c_lat_f(nc), c_lon_f(nc), c_warm(nc) )
+      allocate ( c_xf(nc), c_yf(nc) )
+      allocate ( c_circ(nc), c_u(nc), c_v(nc), c_closed(nc) )
+      allocate ( c_used(nc), icm(nc), itm(nc) )
+
+!     Probabilites d'association
+      allocate ( pmatch(nc,maxtrk) )
+
+!**********************************************************************
+!     Latitude-Longitude et distance entre les points de grille
+!**********************************************************************
+      ier = gdll(gdid, LAT, LON)
+
+      if (nofst.ne.0) then
+         call ecrit_fst(iun51,lat,'LA','LATITUDE',0,0,
+     $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+         call ecrit_fst(iun51,lon,'LO','LONGITUD',0,0,
+     $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+      endif
+
+c     Grille globale ou aire limitee ?
+      call global_or_lam(GLOBAL, lon, ni, nj)
+
+c     On evalue la distance entre les points de grille
+      call calc_dxdy_gr(DELTA_X, DELTA_Y, lat, lon, ni, nj)
+
+!**********************************************************************
+!     Grille etendue pour le filtrage
+!**********************************************************************
+      if ( global .eq. 0 ) then ! LAM
+         call extend_lam_grid(NIEXT, NJEXT, ig1ext, ig2ext, ig3ext, 
+     $        ig4ext, glbkey, ni, nj)
+         gdidext = ezqkdef(niext, njext, grtyp, ig1ext, ig2ext, ig3ext,
+     $        ig4ext, iun01)
+      else
+         call extend_glb_grid(NIEXT, glbkey, ni)
+         njext  = nj
+         ig1ext = ig1
+         ig2ext = ig2
+         ig3ext = ig3
+         ig4ext = ig4
+      endif
+
+      allocate ( bufext(niext,njext) )
+      allocate ( latext(niext,njext), lonext(niext,njext) )
+      allocate ( delta_xext(niext,njext), delta_yext(niext,njext) )
+      allocate ( bufext8(niext,njext) )
+
+      if ( global .eq. 0 ) then ! LAM
+         ier = gdll(gdidext, LATEXT, LONEXT)
+         call calc_dxdy_gr(DELTA_XEXT, DELTA_YEXT, latext, lonext,
+     $        niext, njext)
+      else
+         call extend_glb(DELTA_XEXT, delta_x, global, ni, nj, niext)
+         call extend_glb(DELTA_YEXT, delta_y, global, ni, nj, niext)
+      end if
+
+!**********************************************************************
+!     Lecture des parametres lies au temps
+!**********************************************************************
+      call get_times(YEAR, MONTH, DAY, HOUR, TSTAMP, NTIMES, TSTEP,
+     $     HI, HF, iun01, 'GZ', level, maxtim)
+
+!**********************************************************************
+!     On regle certaines options de l'algorithme
+!**********************************************************************
+      call set_track_options(LEVEL, ISIGN, NPT, DIST_CRIT, VORT_C,        
+     $     DO_CIRC, FVORT, FPRES, VC, TCRAD, HCRIT, TDWIND, BCRIT, 
+     $     vortcnt, anticycl, tropic, tstep, phase)
+
+      if ( tropic .ge. 0 .or. phase .ge. 0) then
+!        On trouve le niveau qui represente le vent a 10m
+         call find_uvsurflev(SLEVEL,iun01,ni,nj)
+
+!        On cherche les niveaux de pression de GZ du fichier en entree
+         glbkeygz = get_dimgrille(ni, nj, iun01, 'GZ')
+         call get_niv(nivhm, nkhm, glbkeygz, iun01)
+         print*
+         print*,"Niveaux (hPa) de GZ en entree"
+         print*,nkhm, nivhm(1:nkhm)
+         
+!        On definie les niveaux de GZ pour l'interpolation verticale
+         nivh(1)=300     ! hPa
+         nivh(2)=350
+         nivh(3)=400
+         nivh(4)=450
+         nivh(5)=500
+         nivh(6)=550
+         nivh(7)=600
+         nivh(8)=650
+         nivh(9)=700
+         nivh(10)=750
+         nivh(11)=800
+         nivh(12)=850
+         nivh(13)=900
+      end if
+
+!**********************************************************************
+!     Lecture de la topographie et calcul de VCRIT
+!**********************************************************************
+      if (tropic .ge. 0) then
+         call read_landsea(LANDSEA,iun01,ni,nj)
+      end if
+
+      call read_orog(OROG,iun01,ni,nj)
+
+      if (nofst.ne.0) then
+         call ecrit_fst(iun51,orog,'MX','TOPO_NF ',0,0,
+     $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+      endif
+
+!     smooth orography to 400. km
+      work8(:,:) = real(orog(:,:),kind=8)
+      call smooth_c(WORK8, ni, nj, 400.E3, work8, delta_x, delta_y)
+      orog(:,:)  = real(work8(:,:))
+
+      if (nofst.ne.0) then
+         call ecrit_fst(iun51,orog,'MX','TOPO    ',0,0,
+     $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+      endif
+
+!     Pour le suivi pres de la surface, on ajuste la valeur critique
+!     du tourbillon (vcrit) en fonction de la topographie
+      if (vortcnt.eq.0 .and. level.ge.850) then 
+         call calc_vcrit(VCRIT, HIGH_TERRAIN, orog, vc, fvort, ni, nj)
+      else
+         VCRIT(:,:) = vc / 1.E5
+         HIGH_TERRAIN(:,:) = 0.0
+      end if
+
+!**********************************************************************
+!     WarmStart
+!**********************************************************************
+      ! On regarde si un fichier ./warmstart.txt existe
+      inquire(file="./warmstart.txt", exist=warmstart)
+      if (warmstart) then
+         print*
+         print*, "mode WarmStart ACTIVE"
+         open(unit=iun60, file="./warmstart.txt",action="read",
+     $        status="old")
+         n_warm = 0
+         do
+            read (iun60,*, end=10)
+            n_warm = n_warm + 1
+         end do
+ 10      close (iun60)
+
+         if (n_warm .ge. 1) then 
+            allocate(wc_lat(n_warm))
+            allocate(wc_lon(n_warm))
+            open(unit=iun60, file="./warmstart.txt",action="read",
+     $        status="old")
+            do ic = 1, n_warm
+               read(iun60,*) wc_lat(ic), wc_lon(ic)
+               print*, ic, wc_lat(ic), wc_lon(ic)
+            end do
+            close (iun60)
+         else
+            print*
+            print*, "Le fichier ./warmstart.txt est vide"
+            print*, "     Retour au mode ColdStart"
+            warmstart = .false.
+         end if
+
+      else
+         print*
+         print*, "mode ColdStart"
+      end if
+!
+      if ( onlywarm .eq. 0 .and. .not. warmstart ) then
+         print*
+         print*,' ERREUR !!! En mode -onlywarm, vous devez '
+         print*,'   specifier des positions dans le fichier'
+         print*,'   ./warmstart.txt'
+         stop
+      end if
+!
+!||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+!----------------------------------------------------------------------
+!     Cyclone trakcing algorithm
+!----------------------------------------------------------------------
+!||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+!     
+      n_track = 0
+      n_track_tot = 0
+!     
+!//////////////////////////////////////////////////////////////////////
+!////////////////Debut de la boucle temporelle  /////////////////////
+!//////////////////////////////////////////////////////////////////////
+!     
+!     Definition du premier IP2
+      if (anal.ne.0) then
+         ip2 = hi - tstep
+      else
+         ip2 = 0       
+      endif
+!     
+      do n = 1 , ntimes
+!     
+!**********************************************************************
+!----------------------------------------------------------------------
+!     1) Lecture et traitements des champs
+!----------------------------------------------------------------------
+!**********************************************************************
+!     
+!----------------------------------------------------------------------
+!     1a. Definition de IP2 et NPAS pour ECRIT_FST
+!----------------------------------------------------------------------
+         if (anal.ne.0) then
+            ip2 = ip2 + tstep
+            if (deet.ne.0) then
+               npas = nint(float(ip2)*(3600.0/float(deet)))
+            else
+               npas = 0
+            endif
+
+            if (anal.eq.2) then
+!              cas ou ip2 = heure a partir de la 1ere analyse
+               dateo = tstamp(1)
+            endif
+         else
+!           cas ou dateo = datev, ip2 = 0
+            npas = 0
+            dateo = tstamp(n)
+         endif
+
+!----------------------------------------------------------------------
+!     1b. Definition de l'heure et de la date: HH DD-MMM-YYYY
+!----------------------------------------------------------------------
+         time(n) = (year(n)-1900)*1000000 + month(n)*10000
+     $        + day(n)*100 + hour(n)
+         print*
+         write(*,110) hour(n),day(n),mnth(month(n)),year(n),ip2
+         print*
+
+ 110     format('==============>>>  Pas de temps : ',
+     $        i2.2,'Z ',i2.2,'-',a3,'-',i4,'  ip2 : ',i3)
+
+!----------------------------------------------------------------------
+!     1c. Lecture du Geopotentiel, de la PNM et du Vent
+!----------------------------------------------------------------------
+         call read_field(PRESS,tstamp(n),iun01,'PN',1.0,0,ni,nj)   ! hPa
+
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+            call read_field(H,tstamp(n),iun01,'GZ',1.0,level,      ! dam
+     $           ni,nj)
+         else
+            call read_field(work1,tstamp(n),iun01,'GZ',1.0,250,    ! dam
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'GZ',1.0,850,    ! dam
+     $           ni,nj)
+            H(:,:)  = work1(:,:) - work2(:,:)      ! 250-850 hPa (dam)
+
+            call interpolv(h3d, work1, work2, 'GZ', tstamp(n), iun01, 
+     $           nivh, nkh, nivhm, nkhm, ni, nj)   ! dam
+            HL(:,:) = h3d(:,:,7) - h3d(:,:,nkh)    ! 600-900 hPa (dam)
+
+            call read_field(work1,tstamp(n),iun01,'UU',1.0,slevel, ! noeuds
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'VV',1.0,slevel, ! noeuds
+     $           ni,nj)
+            WINDSPD(:,:) = sqrt( work1(:,:)**2 + work2(:,:)**2 ) 
+
+            call read_field(work1,tstamp(n),iun01,'UU',K_UVCT,850, ! m/s
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'VV',K_UVCT,850, ! m/s
+     $           ni,nj)
+         endif
+
+         ! U et V representent un estime de la vitesse et direction
+         ! de deplacement des cyclones. On prend la moitie du vent
+         ! a 500 hPa
+         call read_field(U,tstamp(n),iun01,'UU',(K_UVCT/2.0),500,  ! m/s
+     $        ni,nj)
+         call read_field(V,tstamp(n),iun01,'VV',(K_UVCT/2.0),500,  ! m/s
+     $        ni,nj)
+
+!----------------------------------------------------------------------
+!     1d. Calcul du tourbillon et du vent thermique
+!----------------------------------------------------------------------
+         if (tropic .lt. 0 .and. phase .lt. 0) then 
+            ! Tourbillon du vent gradient (extra-tropique seulement)
+            call grad_vort(VORT, h, delta_x, delta_y, lat, gdid, ni, nj)
+         else
+            ! Tourbillon relatif
+            call vorticity(VORT, work1, work2, delta_x, delta_y, ni, nj)
+            ! Vent thermique dans les bas nivea (600-900 hPa)
+            call therm_wind(UTL, VTL, hl, delta_x, delta_y, lat, ni, nj)
+         endif
+
+!        On inverse le signe du tourbillon dans l'Hemisphere Sud
+         do j = 1, nj
+            do i = 1, ni
+               if (lat(i,j).lt.0.0) vort(i,j)=-vort(i,j)
+            end do
+         end do
+
+!----------------------------------------------------------------------
+!     1e. Filtrage
+!----------------------------------------------------------------------
+         pressnf(:,:)  = press(:,:)              ! On sauvegarde PN
+         pressnf8(:,:) = real(press(:,:),kind=8)
+         hnf(:,:)      = h(:,:)                  ! On sauvegarde GZ
+
+!        call ecrit_fst(iun51,VORT,'QR','VORT_RAW',level,ip2,
+!     $      npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+         srad = float(fvort) * 1.E3
+         if ( srad .gt. 0 ) then
+            if ( global .eq. 0 ) then ! LAM
+               call extend(BUFEXT, vort, ni, nj, niext, njext)
+!              call ecrit_fst(iun51,bufext,'QR','VORT_EXT',level,ip2,
+!     $	            npas,dateo,niext,njext,ig1ext,ig2ext,ig3ext,ig4ext,ip3,
+!     $	            grtyp,typvar,deet)
+               bufext8(:,:) = real(bufext(:,:),kind=8)
+               call smooth_c(bufext8, niext, njext, srad,
+     $              bufext8, delta_xext, delta_yext)
+               call crop(VORT8, bufext8, ni, nj, niext, njext)
+            else
+               call extend_glb(BUFEXT, vort, global, ni, nj, niext)
+!              call ecrit_fst(iun51,bufext,'QR','VORT_EXT',level,ip2,
+!     $	            npas,dateo,niext,njext,ig1ext,ig2ext,ig3ext,ig4ext,ip3,
+!     $	            grtyp,typvar,deet)
+               bufext8(:,:) = real(bufext(:,:),kind=8)
+               call smooth_c(bufext8, niext, nj, srad,
+     $              bufext8, delta_xext, delta_yext)
+               call crop(VORT8, bufext8, ni, nj, niext, nj)
+            end if
+         end if
+         vort(:,:)  = real(vort8(:,:))
+
+         srad2       = float(fpres)*1.E3
+         press8(:,:) = real(press(:,:),kind=8)
+         h8(:,:)     = real(h(:,:),kind=8)
+         if (srad2 .gt. 0) then
+            call smooth_c(PRESS8, ni, nj, srad2, press8,
+     $           delta_x, delta_y)
+            if (tropic .lt. 0 .and. phase .lt. 0) then
+               call smooth_c(H8, ni, nj, srad2, h8, delta_x, delta_y)
+            end if
+         endif
+         press(:,:) = real(press8(:,:))
+         h(:,:)     = real(h8(:,:))
+
+!        Pour le vent a 500 hPa (qui sert a determiner la direction de 
+!        deplacement des systemes), on filtre legerement
+         sraduv     = float(200)*1.E3
+
+         work8(:,:) = real(u(:,:),kind=8)
+         call smooth_c(WORK8, ni, nj, sraduv, work8, delta_x, delta_y)
+         u(:,:)     = real(work8(:,:))
+!
+         work8(:,:) = real(v(:,:),kind=8)
+         call smooth_c(WORK8, ni, nj, sraduv, work8, delta_x, delta_y)
+         v(:,:)     = real(work8(:,:))
+
+         if (nofst.ne.0) then
+            call ecrit_fst(iun51,u,'UU','SPEED_Y ',500,ip2,  ! m/s
+     $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+            call ecrit_fst(iun51,v,'VV','SPEED_Y ',500,ip2,  ! m/s
+     $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+         endif
+
+!        Conversion du vent selon la grille (x-y) en ses composantes
+!        meteorologiques (lat-lon)
+         call gdwdfuv(gdid, work1, work2, U, V, lat, lon, ni*nj)
+         call sdtouv2d(U, V, work1, work2, ni, nj)
+
+!----------------------------------------------------------------------
+!     1f. Ecriture de differents champs en Fichier Standard
+!----------------------------------------------------------------------
+         if (nofst.ne.0) then
+!        Tourbillon du vent gradient ou relatif
+            do j=1,nj
+               do i=1,ni
+                  if (vort(i,j).gt.vcrit(i,j)) then
+                     vct(i,j) = vort(i,j)
+                  else
+                     vct(i,j) = 0.0
+                  endif
+               end do
+            end do
+            if (tropic .lt. 0 .and. phase .lt. 0) then
+               call ecrit_fst(iun51,vct,'QR','GR-VCRIT',level,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+               call ecrit_fst(iun51,vort,'QR','GRADIENT',level,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+            else
+               call ecrit_fst(iun51,vct,'QR','RV-VCRIT',850,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+               call ecrit_fst(iun51,vort,'QR','REL_VORT',850,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+            end if
+
+!           Pression au niv de la mer
+            call ecrit_fst(iun51,press,'PN','PNM_MD  ',0,ip2,
+     $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+            call ecrit_fst(iun51,pressnf,'PN','PNM_NF  ',0,ip2,
+     $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+
+!           Geopotentiel / Epaisseur
+            if (tropic .lt. 0 .and. phase .lt. 0) then
+               call ecrit_fst(iun51,h,'GZ','GEOPT   ',level,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+               call ecrit_fst(iun51,hnf,'GZ','GEOPT_NF',level,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
+     $              deet)
+            else
+               call ecrit_fst(iun51,h,'DZ','THICK_UL',250,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,850,grtyp,
+     $              typvar,deet)
+               call ecrit_fst(iun51,hl,'DZ','THICK_LL',600,ip2,
+     $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,900,grtyp,typvar,
+     $              deet)
+            end if
+
+!           High_Terrain
+            if (n.eq.1) then
+               call ecrit_fst(iun51,high_terrain,'XX','HIGH_TER',0,0,
+     $              0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+            endif
+
+         endif
+
+!**********************************************************************
+!----------------------------------------------------------------------
+!     2) Recherche des CENTRES
+!----------------------------------------------------------------------
+!**********************************************************************
+         ip_f = 0         ! count of filtered pressure centers
+         ip   = 0         ! count of raw pressure centers
+         iv   = 0         ! count of vorticity centers
+         iz   = 0         ! count of thickness centers (si tropic)
+
+         if (global .eq. 0) then ! grille LAM
+            istart = 2
+            iend   = ni-1
+            jstart = 2
+            jend   = nj-1
+         else                   ! Grille globale
+            istart = 1
+            if ( global .eq. 1 ) then ! cas ou i /= ni
+               iend= ni
+            else                ! cas ou i = ni (repetition)
+               iend= ni-1
+            end if
+            jstart = 2
+            jend   = nj-1
+         end if
+
+         do j = jstart, jend
+         do i = istart, iend
+
+!           Masque en Lat-Lon
+            if ( lat(i,j) .lt. float(latmin) ) cycle
+            if ( lat(i,j) .gt. float(latmax) ) cycle
+            if ( lon(i,j) .lt. float(lonmin) ) cycle
+            if ( lon(i,j) .gt. float(lonmax) ) cycle
+
+!           Facteur pour la conversion du toubillon
+            if ( lat(i,j) .ge. 0.0 ) then
+               ihem = 1         ! Hemisphere Nord
+            else
+               ihem = -1        ! Hemisphere Sud
+            end if
+
+!----------------------------------------------------------------------
+!     2a. Recherche des CENTRES de PNM
+!----------------------------------------------------------------------
+!     press = press(i,j) * isign (isign=1 cyclones, -1 anticyclones)
+            call centre(FOUND, press8, i, j, isign, 'min', global, 
+     $           ni, nj)
+
+            if (found) then
+               ip_f = ip_f + 1
+               call find_centre(P_XF_F(IP_F), P_YF_F(IP_F), i, j, 
+     $              press, isign, 'min', gdid, ni, nj)
+               ier = gdllfxy(gdid, P_LAT_F(IP_F), P_LON_F(IP_F), 
+     $              p_xf_f(ip_f), p_yf_f(ip_f), 1)
+            end if
+
+            if ( relocp .eq. 0 ) then
+               ! On cherche les centre dans le champs de pression brute
+               call centre(FOUND, pressnf8, i, j, isign, 'min', global,
+     $              ni, nj)
+
+               if (found) then
+                  ip = ip + 1
+                  call find_centre(XPF, YPF, i, j, pressnf,
+     $                 isign, 'min', gdid, ni, nj)
+                  ier = gdllfxy(gdid, P_LAT(IP), P_LON(IP), xpf,
+     $                 ypf, 1)
+               end if
+            endif
+
+!----------------------------------------------------------------------
+!     2b. Recherche des CENTRES de TOURBILLON (if VORT_C = true)
+!----------------------------------------------------------------------
+!     VORT est construit de facon a toujours etre positif pour les 
+!     cyclones, negatifs pour les anticyclones, sur tout le globe.
+!     vort = vort(i,j) * isign ! (isign=1 cyclones, -1 anticyclones)
+
+            if ( vort_c          .and. 
+     $           vort(i,j) * isign .gt. vcrit(i,j) ) then
+               call centre(FOUND, vort8, i, j, isign, 'max', global,
+     $              ni, nj)
+
+               if (found) then
+                  iv = iv + 1
+                  call find_centre(V_XF(IV), V_YF(IV), i, j, vort, 
+     $                 isign, 'max', gdid, ni, nj)
+                  ier = gdllfxy(gdid, V_LAT(IV), V_LON(IV), v_xf(iv), 
+     $                 v_yf(iv), 1)
+               end if
+            end if
+
+!----------------------------------------------------------------------
+!     2c. Recherche des MAX d'EPAISSEUR (if TROPIC)
+!----------------------------------------------------------------------
+            if ( (tropic .ge. 0 .or. phase .ge. 0) .and. 
+     $           h(i,j) .gt. float(hcrit) ) then
+
+               call centre(FOUND, h8, i, j, 1, 'max', global,
+     $              ni, nj)
+
+               if (found) then
+                  iz = iz + 1
+                  call find_centre(XPF, YPF, i, j, h,
+     $                 1, 'max', gdid, ni, nj)
+                  ier = gdllfxy(gdid, Z_LAT(IZ), Z_LON(IZ), xpf,
+     $                 ypf, 1)
+               end if
+
+            end if
+
+         end do                 ! Boucle en i
+         end do                 ! Boucle en j
+
+!**********************************************************************
+!----------------------------------------------------------------------
+!     3) On determine quels centres on veut suivre
+!----------------------------------------------------------------------
+!**********************************************************************
+         if (vortcnt .eq. 0) then
+            n_new=iv   ! Centres de tourbillon
+            print*,' # de centres de tourbillon = ',n_new
+         else
+            n_new=ip_f   ! Centres de pression
+            print*,' # de centres de pression filtree = ',n_new
+            if (relocp .eq. 0 ) then
+               print*,' # de centres de pression brute   = ',ip
+            end if
+         end if
+
+!        A ce stade, nous avons tous les centres pour ce pas de temps
+         if (tropic .ge. 0 .or. phase .ge. 0) then
+            print*,' # de centres de tourbillon = ',iv
+            print*,' # de centres de thickness  = ',iz
+         end if
+
+         do ic = 1, n_new
+            if (vortcnt .eq. 0) then
+               C_XF(IC)    = v_xf(ic)
+               C_YF(IC)    = v_yf(ic)
+               C_LAT_F(IC) = v_lat(ic)
+               C_LON_F(IC) = v_lon(ic)
+               C_LAT(IC)   = v_lat(ic)
+               C_LON(IC)   = v_lon(ic)
+            else
+               C_LAT_F(IC) = p_lat_f(ic)
+               C_LON_F(IC) = p_lon_f(ic)
+               C_XF(IC)    = p_xf_f(ic)
+               C_YF(IC)    = p_yf_f(ic)
+               C_LAT(IC)   = p_lat_f(ic)
+               C_LON(IC)   = p_lon_f(ic)
+               if (relocp .eq. 0) then
+                  ! On remplace le centre dans la pression filtree par
+                  ! le centre le plus pres dans la pression brute
+                  call closest_centre(DIST, F_LAT, F_LON, c_lat_f(ic),
+     $                 c_lon_f(ic), p_lat, p_lon, ip, nc)
+                  if (dist/1000.0 .le. 250.0) then  ! si dist <= 250 km
+                     ier = gdxyfll(gdid, C_XF(IC), C_YF(IC), f_lat, 
+     $                    f_lon, 1)
+                     C_LAT(IC) = f_lat
+                     C_LON(IC) = f_lon
+                  end if
+               end if
+            end if
+
+!           On determine la valeur de la pression (non filtree)
+            ier= gdxysval(gdid, C_PRESS(IC), pressnf, c_xf(ic), 
+     $           c_yf(ic), 1)
+
+!           On determine la valeur du tourbillon
+            ier = gdxysval(gdid, vort_t, vort, c_xf(ic), c_yf(ic), 1)
+            c_vort(ic) = ihem * vort_t
+
+!           On determine les valeurs pour l'estimation de la
+!           vitesse de deplacement
+            ier = gdxysval(gdid, C_U(IC), U, c_xf(ic), c_yf(ic), 1)
+            ier = gdxysval(gdid, C_V(IC), V, c_xf(ic), c_yf(ic), 1)
+
+!           On determine la valeur du masque Terre-Mer
+            if (tropic .ge. 0) then
+               ier = gdxysval(gdid, C_LANDSEA(IC), landsea, 
+     $              c_xf(ic), c_yf(ic), 1)
+            end if
+
+         end do
+
+         ! WarmStart : On tente d'associer les centres trouves au
+         !             premier pas de temps avec les centres specifies
+         !             dans le fichier ./warmstart.txt
+         C_WARM(1:n_new) = .false.
+         if (n == 1 .and. warmstart) then
+            print*
+            print*, "WarmStart: On tente une association"
+            do ic = 1, n_new
+               print*, "   ", ic, c_lat(ic), c_lon(ic)
+               call closest_centre(DIST, F_LAT, F_LON, c_lat(ic),
+     $              c_lon(ic), wc_lat, wc_lon, n_warm, n_warm)
+
+               if (dist/1000.0 .le. 100.0) then ! si dist <= 100 km
+                  print*, "   ", ic, " Match Found!"
+                  C_WARM(IC) = .true.
+               end if
+            end do
+         end if
+
+!**********************************************************************
+!----------------------------------------------------------------------
+!     4) Categorisation des cyclones
+!----------------------------------------------------------------------
+!**********************************************************************
+
+!----------------------------------------------------------------------
+!     4a. En mode TROPIC ou PHASE ...
+!---------------------------------------------------------------------- 
+         if ( tropic .ge. 0 .or. phase .ge. 0) then
+            do ic=1,n_new
+
+!              Max de vort a 850 hPa dans un rayon de TC_RAD km
+               call closest_centre(DIST, F_LAT, F_LON, c_lat(ic), 
+     $              c_lon(ic), v_lat, v_lon, iv, nc)
+               if (dist/1000.0 .le. tcrad) then
+                  ier = gdllsval(gdid, C_MAXQR(IC), vort, 
+     $                 f_lat, f_lon, 1)
+               else
+                  C_MAXQR(ic)=0.0
+               endif
+
+!              Max d'epaisseur dans un rayon de TC_RAD km
+               call closest_centre(DIST, F_LAT, F_LON, c_lat(ic), 
+     $              c_lon(ic), z_lat, z_lon, iz, nc)
+               if (dist/1000.0 .le. tcrad) then
+                  ier = gdllsval(gdid, C_MAXDZ(IC), h,
+     $                 f_lat, f_lon, 1)
+               else
+                  C_MAXDZ(ic)=0.0
+               endif
+ 
+!              Evaluation de la baroclinite de bas niveaux (B, 600-900 hPa)
+               call barocline(C_B(ic), hl, utl, vtl, nint(c_xf(ic)),
+     $              nint(c_yf(ic)), c_lat(ic), c_lon(ic), 500.0, lat,
+     $              lon, delta_x, delta_y, ni, nj)
+
+!              Evaluation de la structure de bas (VTL, 600-900 hPa) et
+!              de hauts niveaux (VTU, 300-600 hPa)
+               call core_struct(C_VTL(ic), C_VTU(ic), h3d, nivh, 
+     $              nint(c_xf(ic)), nint(c_yf(ic)), c_lat(ic), 
+     $              c_lon(ic), 500.0, lat, lon,
+     $              delta_x, delta_y, ni, nj, nkh)
+
+!              Vent de surface maximum dans un rayon de 1.5*TC_RAD km
+               call surround_minmax(dummy, C_MAXUV(ic), nint(c_xf(ic)), 
+     $              nint(c_yf(ic)), c_lat(ic), c_lon(ic), windspd, 
+     $              tcrad*1.5, delta_x, delta_y, lat, lon, ni, nj)
+
+!              On estime le type de cyclone
+               call cyclone_class(C_CIRC(ic), c_b(ic), c_maxqr(ic),
+     $              c_maxdz(ic), c_maxuv(ic), float(tdwind),
+     $              float(bcrit))
+
+            end do
+
+!----------------------------------------------------------------------
+!     4b. Calcul de la circulation (si suivi en tourbillon)
+!----------------------------------------------------------------------
+         elseif ( vortcnt .eq. 0 .and. do_circ ) then
+ 
+           do ic=1,n_new
+               call calc_circ(C_CIRC(ic), c_lat, c_lon, c_vort(ic), 
+     $              vort, ic, ihem, gdid, ni, nj, nc)
+            end do
+
+         else
+            C_CIRC(:)=0.0
+         end if
+
+!----------------------------------------------------------------------
+!     4c. Cyclone OUVERT ou FERME (si suivi en tourbillon)
+!----------------------------------------------------------------------
+         if (vortcnt .eq. 0) then
+            do ic=1,n_new
+               call closest_centre(DIST, f_lat, f_lon, c_lat(ic), 
+     $              c_lon(ic), p_lat_f, p_lon_f, ip_f, nc)
+               if (dist/1000.0 .le. 330) then ! 330 km
+                  C_CLOSED(ic)=.true.
+               else
+                  C_CLOSED(ic)=.false.
+               endif
+            end do
+         else
+            C_CLOSED(:)=.true.
+         end if
+
+
+!**********************************************************************
+!----------------------------------------------------------------------
+!     5) Contruction des trajectoires 
+!----------------------------------------------------------------------
+!**********************************************************************
+         if ( n .eq. 1) goto 1000
+
+         c_used(:)   = .false.
+         trk_used(:) = .false.
+
+!----------------------------------------------------------------------
+!     5a. Pour chacunes des trajectoire actives, on evalue la probabilite
+!         d'association avec les nouveaux centres du pas de temps courant
+!----------------------------------------------------------------------
+         imatch = 0
+         do it = 1, n_track
+            nn = trk_nctr(it)
+            call estim_position(LAT_EST, LON_EST, P_EST, V_EST, it, 
+     $           trk_u, trk_v, trk_lat_f, trk_lon_f, trk_press, 
+     $           trk_vort, nn, tstep, maxctr, maxtrk)
+            
+            do ic = 1, n_new
+               pmatch(ic,it) = -999.
+               call eval_prob(PROB, lat_est, lon_est, p_est, v_est,
+     $              c_lat_f, c_lon_f, c_vort, c_press, trk_lat_f, 
+     $              trk_lon_f, dist_crit, vort_c, ic, it, nn, tstep, 
+     $              nc, maxtrk, maxctr)
+               
+               if (prob .gt. 0.0) then ! association probable
+                  pmatch(ic,it) = prob
+                  imatch        = imatch + 1
+                  icm(imatch)   = ic
+                  itm(imatch)   = it
+               end if
+               
+            end do
+         end do
+         n_matches = imatch
+
+!------------------------------------------------------------------------
+!     5b. On associe trajectoires et centres selon les probabilites
+!------------------------------------------------------------------------
+         call match_center(ICM, TRK_USED, C_USED, pmatch, itm, 
+     $        n_matches, nc, maxtrk, maxctr)
+
+!------------------------------------------------------------------------
+!     5c. On met a jour les trajectoires
+!------------------------------------------------------------------------
+         do it = 1, n_track
+            nn = trk_nctr(it)
+            ic = icm(it)
+            
+            if ( ic.gt.0 .and. trk_used(it) ) then ! association trouvee
+               trk_nctr(it)      = trk_nctr(it) + 1
+               nn                = trk_nctr(it)
+               trk_lat(nn,it)    = c_lat(ic)
+               trk_lon(nn,it)    = c_lon(ic)
+               trk_lat_f(nn,it)  = c_lat_f(ic)
+               trk_lon_f(nn,it)  = c_lon_f(ic)
+               trk_vort(nn,it)   = c_vort(ic)
+               trk_press(nn,it)  = c_press(ic)
+               trk_circ(nn,it)   = c_circ(ic)
+               trk_u(nn,it)      = c_u(ic)
+               trk_v(nn,it)      = c_v(ic)
+               trk_closed(nn,it) = c_closed(ic)
+               trk_time(nn,it)   = n
+               if (tropic .ge. 0 .or. phase .ge. 0) then
+                  trk_b(nn,it)     = c_b(ic)
+                  trk_vtl(nn,it)   = c_vtl(ic)
+                  trk_vtu(nn,it)   = c_vtu(ic)
+                  trk_maxqr(nn,it) = c_maxqr(ic)
+                  trk_maxdz(nn,it) = c_maxdz(ic)
+                  trk_maxuv(nn,it) = c_maxuv(ic)
+               end if
+            end if
+            
+         end do
+
+!----------------------------------------------------------------------
+!     5d. On ecrit les trajectoires terminees dans un fichier texte
+!----------------------------------------------------------------------
+         do it = 1, n_track
+
+            if ( (.not. trk_used(it)) .or. (n.eq.ntimes) ) then
+               nn = trk_nctr(it)
+
+            if (nn .ge. npt .or. trk_warm(it) ) then
+               n_track_tot = n_track_tot + 1
+
+               write(*,'(6x, ''Track # '', i8, '' se termine'', 4F7.1)')
+     $              n_track_tot, trk_lat(nn,it), trk_lon(nn,it), 
+     $              trk_press(nn,it), trk_vort(nn,it)*1.0E5
+
+               if ( trim(output_type) == 'xml' ) then
+                  call write_track_cxml(iun52, trk_time, trk_lat, trk_lon, 
+     $                 trk_press, trk_vort, trk_circ, trk_closed, 
+     $                 trk_b, trk_vtl, trk_vtu, trk_maxqr, trk_maxdz, 
+     $                 trk_maxuv, n_track_tot, it, nn, maxtrk, maxctr,
+     $                 time, maxtim, tropic, phase, year, month, day, hour)
+               else
+                  call write_track(iun52, trk_time, trk_lat, trk_lon, 
+     $                 trk_press, trk_vort, trk_circ, trk_closed, 
+     $                 trk_b, trk_vtl, trk_vtu, trk_maxqr, trk_maxdz, 
+     $                 trk_maxuv, n_track_tot, it, nn, maxtrk, maxctr,
+     $                 time, maxtim, tropic, phase) 
+               end if
+            end if
+
+            end if
+         end do
+         
+!----------------------------------------------------------------------
+!     5e. On ne conserve que les trajectoires actives
+!----------------------------------------------------------------------
+         itt = 0
+         do it = 1, n_track
+
+            if (trk_used(it)) then
+               itt =itt + 1
+               trk_nctr(itt) = trk_nctr(it)
+               do nn = 1, trk_nctr(it)
+                  trk_lat(nn,itt)    = trk_lat(nn,it)
+                  trk_lon(nn,itt)    = trk_lon(nn,it)
+                  trk_lat_f(nn,itt)  = trk_lat_f(nn,it)
+                  trk_lon_f(nn,itt)  = trk_lon_f(nn,it)
+                  trk_vort(nn,itt)   = trk_vort(nn,it)
+                  trk_press(nn,itt)  = trk_press(nn,it)
+                  trk_circ(nn,itt)   = trk_circ(nn,it)
+                  trk_u(nn,itt)      = trk_u(nn,it)
+                  trk_v(nn,itt)      = trk_v(nn,it)
+                  trk_closed(nn,itt) = trk_closed(nn,it)
+                  trk_time(nn,itt)   = trk_time(nn,it)
+                  if (tropic .ge. 0 .or. phase .ge. 0) then
+                     trk_b(nn,itt)     = trk_b(nn,it)
+                     trk_vtl(nn,itt)   = trk_vtl(nn,it)
+                     trk_vtu(nn,itt)   = trk_vtu(nn,it)
+                     trk_maxqr(nn,itt) = trk_maxqr(nn,it)
+                     trk_maxdz(nn,itt) = trk_maxdz(nn,it)
+                     trk_maxuv(nn,itt) = trk_maxuv(nn,it)
+                  end if
+               end do
+            end if
+
+         end do
+         n_track = itt
+
+!----------------------------------------------------------------------
+!     5f. On demarre de nouvelles trajectoires pour les centres qui
+!         n'ont pas ete associes a une trajectoire
+!----------------------------------------------------------------------
+ 1000    continue
+!
+         do ic = 1, n_new
+            if ( onlywarm .eq. 0 ) then
+               if ( c_warm(ic) ) then
+                  start = .true. ! On accepte seulement les warmstart
+               else
+                  start = .false.
+               end if
+            else if ( tropic .lt. 0 ) then
+               start =  .true.   ! On accepte tous les types de cyclones
+            else
+               if (  c_circ(ic)    .ge. 9.0 .and. 
+     $              (c_landsea(ic) .le. 0.1 .or. n .eq. 1) 
+     $              .or. c_warm(ic) ) then
+                  start = .true. ! Tropic : on demarre une trajectoire 
+                                 ! uniquement si 
+                                 ! 1) le cyclone est tropical ET
+                                 ! 2) vent_10m max > td_wind ET
+                                 ! 3) le cyclone est sur la mer (sauf 
+                                 !    au premier pas de temps n=1)
+                                 ! OU WarmStart
+               else
+                  start = .false.
+               end if
+            end if
+            if (.not. c_used(ic) .and. start ) then
+               n_track               = n_track + 1
+               trk_lat(1,n_track)    = c_lat(ic)
+               trk_lon(1,n_track)    = c_lon(ic)
+               trk_lat_f(1,n_track)  = c_lat_f(ic)
+               trk_lon_f(1,n_track)  = c_lon_f(ic)
+               trk_vort(1,n_track)   = c_vort(ic)
+               trk_press(1,n_track)  = c_press(ic)
+               trk_circ(1,n_track)   = c_circ(ic)
+               trk_u(1,n_track)      = c_u(ic)
+               trk_v(1,n_track)      = c_v(ic)
+               trk_closed(1,n_track) = c_closed(ic)
+               trk_warm(n_track)     = c_warm(ic)
+               trk_time(1,n_track)   = n
+               trk_nctr(n_track)     = 1
+               if (tropic .ge. 0 .or. phase .ge. 0) then
+                  trk_b(1,n_track)     = c_b(ic)
+                  trk_vtl(1,n_track)   = c_vtl(ic)
+                  trk_vtu(1,n_track)   = c_vtu(ic)
+                  trk_maxqr(1,n_track) = c_maxqr(ic)
+                  trk_maxdz(1,n_track) = c_maxdz(ic)
+                  trk_maxuv(1,n_track) = c_maxuv(ic)
+               end if
+            end if
+         end do
+!     
+      end do
+!     
+!//////////////////////////////////////////////////////////////////////
+!//////////////////  Fin de la boucle temporelle  /////////////////////
+!//////////////////////////////////////////////////////////////////////
+!
+ 125  continue
+!
+      print*
+      print*,' # total de trajectoires = ', n_track_tot
+      print*
+!     
+      ier=fstopc('MSGLVL','INFORM',.false.)
+      ier = fstfrm(iun01)
+      ier = fclos(iun01)
+      if (nofst.ne.0) then
+         ier = fstfrm(iun51)
+         ier = fclos(iun51)
+      endif
+      close(unit=iun52)
+!     
+      deallocate ( bufext )
+      deallocate ( bufext8 )
+      deallocate ( h, hnf, u, v )
+      deallocate ( press, pressnf )
+      deallocate ( windspd )
+      deallocate ( vort, vct, vcrit )
+      deallocate ( orog, high_terrain )
+      deallocate ( lat, lon )
+      deallocate ( delta_x, delta_y )
+      deallocate ( latext, lonext )
+      deallocate ( delta_xext, delta_yext )
+      deallocate ( work1, work2, work3 )
+      deallocate ( press8, vort8, h8, work8 )
+      deallocate ( pressnf8 )
+!     
+      deallocate ( p_lat, p_lon )
+      deallocate ( p_lat_f, p_lon_f )
+      deallocate ( p_xf_f, p_yf_f )
+      deallocate ( v_lat, v_lon )
+      deallocate ( v_xf, v_yf )
+!
+      if (tropic .ge. 0 .or. phase .ge. 0) then
+         deallocate ( nivh )
+         deallocate ( h3d )
+         deallocate ( c_b )
+         deallocate ( hl, utl, vtl)
+         deallocate ( c_maxuv)
+         deallocate ( z_lat, z_lon )
+         deallocate ( c_maxqr, c_maxdz)
+         deallocate ( c_vtl, c_vtu )
+      end if
+      if (tropic .ge. 0) then
+         deallocate ( landsea )
+         deallocate ( c_landsea )
+      end if
+!
+      if (warmstart) then
+         deallocate ( wc_lat, wc_lon )
+      end if
+!
+      deallocate ( c_vort, c_press, c_lat, c_lon )
+      deallocate ( c_lat_f, c_lon_f, c_warm )
+      deallocate ( c_xf, c_yf )
+      deallocate ( c_circ, c_u, c_v, c_closed )
+      deallocate ( c_used, icm, itm )
+!     
+      deallocate ( pmatch )
+!     
+      print*
+      print*,"Fin d'execution normale"
+      print*
+!     
+      end program make_tracks
+
+c######################################################################
+c#########################   Sous-routines  ###########################
+c######################################################################
+
+!***********************************************************************
+!----  Sous-routine pour la lecture des options
+!***********************************************************************
+      subroutine get_options(SILENT, IP3, GETVAR, INFILE, OUTFILE,
+     $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
+     $     ANAL, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
+     $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
+     $     ONLYWARM, OUTPUT_TYPE)
+
+      implicit none
+      
+      integer silent, ip3, npt, level, fvort, fpres, tcrad, hcrit
+      integer anticycl, vortcnt, anal, tropic, nofst, tdwind
+      integer phase, bcrit, latmin, latmax, lonmin, lonmax, relocp
+      integer onlywarm
+
+      real dist_crit, vc
+
+      character(len=*) output_type
+
+      character*2 getvar
+      character*1024 infile, outfile
+
+      integer ier
+      integer fstopc
+
+      integer narg
+      parameter (narg=28)
+
+      character *12 cle(narg)
+      character *1024 def(narg),val(narg) 
+
+!     - cles         
+      data cle /'i.','o.','silent','ip3','getvar','npt',
+     $     'dist_crit','level','anticycl','fvort','vortcnt',
+     $     'vc','anal','tropic','nofst','fpres','tcrad',
+     $     'hcrit','tdwind','phase','bcrit',
+     $     'latmin','latmax','lonmin','lonmax','relocp',
+     $     'onlywarm','output_type.'/
+!     - valeurs des cles si NON mentionnees a l'appel
+      data val /'scrap','scrap','-1','-1',' ','-1',
+     $     '-1.','-1','-1','-1','-1',
+     $     '-1.','-1','-1','-1','-1','-1',
+     $     '-1','-1','-1','-1',
+     $     '-1','-1','-1','-1','-1',
+     $     '-1','xml'/
+!     - valeurs des cles si mentionnees a l'appel SANS valeurs
+      data def /'scrap','scrap','0','0',' ','4',
+     $     '3.75','1000','0','800','0',
+     $     '2.5','0','0','0','300','200',
+     $     '935','22','0','25',
+     $     '-90','90','0','360','0',
+     $     '0','xml'/
+
+*-------------------------------------------------------------------
+
+!     On associe les parametres donnes a l'appel avec les 
+!     cles appropriees
+
+      call ccard(cle,def,val,narg,-1)
+*
+      read (val(1),4) infile
+      read (val(2),4) outfile
+ 4    format(a1024)
+
+      read (val(3),*) silent
+      read (val(4),*) ip3
+
+      read (val(5),3) getvar
+ 3    format(a2)
+
+      read (val(6),*) npt
+      read (val(7),*) dist_crit
+      read (val(8),*) level
+      read (val(9),*) anticycl
+      read (val(10),*) fvort
+      read (val(11),*) vortcnt
+      read (val(12),*) vc
+      read (val(13),*) anal
+      read (val(14),*) tropic
+      read (val(15),*) nofst
+      read (val(16),*) fpres
+      read (val(17),*) tcrad
+      read (val(18),*) hcrit
+      read (val(19),*) tdwind
+      read (val(20),*) phase
+      read (val(21),*) bcrit
+      read (val(22),*) latmin
+      read (val(23),*) latmax
+      read (val(24),*) lonmin
+      read (val(25),*) lonmax
+      read (val(26),*) relocp
+      read (val(27),*) onlywarm
+
+      read (val(28),5) output_type
+ 5    format(a12)
+
+      print*
+      print*,' /////////////////////////////////////////////////////'
+      print*,' > Make_Tracks v2.3                                  <'
+      print*,' /////////////////////////////////////////////////////'
+      print*
+
+      if (val(1).eq.'scrap') then
+         print*
+         print*,' ******** Cles standards ********'
+         print*
+         print*,' -i        : fichier standard d entree'
+         print*
+         print*,' -o        : fichier standard de sortie contenant les'
+         print*,'             resultats du calcul'
+         print*
+         print*,' -npt      : Temps de vie minimum (en pas de temps) '
+         print*,'             d une trajectoire '
+         print*
+         print*,' -level    : Niveau vertical suivi  '
+         print*
+         print*,' -fvort    : Cressman smoothing radius (km) for vort '
+         print*
+         print*,' -fpres    : Cressman smoothing radius (km) for press '
+         print*
+         print*,' -anal     : Analyses en entree'
+         print*
+         print*,' -nofst    : pas de sorties en fichier std '
+         print*
+         print*,' -vortcnt  : suivi en tourbillon '
+         print*
+         print*,' -anticycl : on suit les anticyclones '
+         print*
+         print*,' -phase    : on diagnotic la phase des cyclones '
+         print*
+         print*,' -tropic   : on suit uniquement les cyclones tropicaux'
+         print*
+         print*,' -latmin   : Frontiere Sud '
+         print*
+         print*,' -latmax   : Frontiere Nord '
+         print*
+         print*,' -lonmin   : Frontiere Ouest '
+         print*
+         print*,' -lonmax   : Frontiere Est '
+         print*
+         print*,' -relocp   : on repositionne les centres de pression '
+         print*
+         print*,' -silent   : Regle le niveau d ecriture a l ecran '
+         print*
+         print*,' -hcrit    : Valeur seuil pour les epaisseurs '
+         print*
+         print*,' -bcrit    : Valeur seuil pour le terme '
+         print*,'             de baroclinicite'
+         print*
+         print*,' -tcrad    : Rayon d un cyclone tropical '
+         print*
+         print*,' -tdwind   : Valeur seuil de vent pour considerer un '
+         print*,'             cyclone comme depression tropicale '
+         print*
+         print*,' -onlywarm : Pour suivre seulement les cyclones'
+         print*,'             specifies dans le fichier ./warmstart.txt'
+         print*
+         print*,' -output_type : Format des sorties ascii:'
+         print*,'                xml ou legacy'
+      endif
+
+*
+!     On attribue les valeurs par defaut aux cles non-specifiees
+!
+      if (silent.eq.0) then
+         ier=fstopc('MSGLVL','WARNIN',.false.)
+      endif
+!
+      if (ip3.eq.-1) then
+         read (def(4),*) ip3
+      endif
+!
+      if (val(2).eq.'scrap') then
+         print*, " Valeurs par defaut: output  = scrap"
+      endif
+!
+      if (getvar.eq.' ') then
+         getvar = 'GZ'
+      endif
+!
+      if (nofst.eq.0) then
+	 print*,' **************************************'
+	 print*,'  PAS d ecriture en format FICHIER STD'
+	 print*,' **************************************'
+	 print*
+      endif
+!
+      if (anal.lt.0) then
+	 print*,' input: PREVISION'
+      else
+	 print*,' input: ANALYSES'
+	 if (anal.eq.0) then
+	    print*,' dateo = datev, ip2 = 0'
+	 elseif (anal.eq.2) then
+	    print*,' ip2 = heure a partir de la 1ere analyse'
+	 else
+	    print*,'ERREUR: anal = 0 (sans valeur) ou 2 ... Stop !'
+	    stop
+	 endif
+      endif
+!
+      if (tropic.lt.0 .and. phase.lt.0) then
+         print*
+         print*,' On NE distingue PAS les cyclones E-T et Tropicaux'
+         print*
+      elseif (tropic.ge.0 .and. phase.lt.0) then
+         print*
+         print*,' On suit UNIQUEMENT les cyclones TROPICAUX'
+         print*
+      elseif (tropic.lt.0 .and. phase.ge.0) then
+         print*
+         print*,' On diagnostique la PHASE de TOUS les cyclones'
+         print*
+      else
+         print*,'ERREUR: PHASE et TROPIC ne peuvent etre activer '
+         print*,'        simultanement.  Stop !                  '
+         stop
+      endif
+!
+      if (tropic.ge.0 .and. anticycl.eq.0) then
+         print*,'ERREUR: En mode TROPIC on ne suit que les cyclones'
+         print*,'        Stop !                                    '
+         stop
+      end if
+!
+      if (vortcnt.eq.0 .and. (phase.ge.0 .or. tropic.ge.0) ) then
+         print*,'ERREUR: Le suivi en tourbillon (vortcnt) n est '
+         print*,'        pas possible en mode PHASE et TROPIC   '
+         print*,'        Stop ! '
+         stop
+      end if
+!
+      if (vortcnt.ne.0 .and. level.ne.-1) then
+         print*,'ERREUR: Vous pouvez specifier un niveau uniquement'
+         print*,'        si vous adoptez le suivi en tourbillon    '
+         print*,'        Stop ! '
+         stop
+      end if
+!
+      if (latmin.eq.-1) then
+         latmin = -90
+      else
+         print*
+         print*,"Latitude  MINIMALE imposee : ", latmin
+      endif
+!      
+      if (latmax.eq.-1) then
+         latmax = 90
+      else
+         print*
+         print*,"Latitude  MAXIMALE imposee : ", latmax
+      endif
+!      
+      if (lonmin.eq.-1) then
+         lonmin = 0
+      else
+         print*
+         print*,"Longitude MINIMALE imposee : ", lonmin
+      endif
+!
+      if (lonmax.eq.-1) then
+         lonmax = 360
+      else
+         print*
+         print*,"Longitude MAXIMALE imposee : ", lonmax
+      endif
+!
+      if (relocp .eq. 0) then
+         if (vortcnt .ne. 0) then
+            print*
+            print*,"On repositionne les centres de la pression filtree "
+            print*,"avec les centres de la pression brute"
+         else
+            print*
+            print*,"Erreur : Option RELOCP valide seulement pour le" 
+            print*,"         suivi en pression "
+            stop
+         end if
+      end if
+!
+      if (onlywarm .eq. 0) then
+         print*
+         print*,'On suit SEULEMENT les WARMSTART'
+      end if
+!
+      if ( trim(output_type) == 'xml') then
+         print*
+         print*,'Format ASCII = XML'
+      else if ( trim(output_type) == 'legacy') then
+         print*
+         print*,'Format ASCII = LEGACY'
+      else
+         print*
+         print*,'Format ASCII inconnu ', trim(output_type)
+         print*,'Choisissez xml ou legacy'
+         stop
+      end if
+!
+      end subroutine get_options
+
+!***********************************************************************
+!---- Sous-routine pour la definition des options lies au tracking
+!***********************************************************************
+      subroutine set_track_options(LEVEL, ISIGN, NPT, DIST_CRIT, VORT_C, 
+     $     DO_CIRC, FVORT, FPRES, VC, TCRAD, HCRIT, TDWIND, BCRIT, 
+     $     vortcnt, anticycl, tropic, tstep, phase)
+      implicit none
+
+      integer  level, isign, npt, tstep, fvort, vortcnt, anticycl 
+      integer  tropic, fpres, tcrad, hcrit, tdwind, bcrit, phase
+
+      real     dist_crit, vc
+
+      logical  vort_c, do_circ
+
+      if (npt.eq.-1) then
+	 npt = 24 / tstep + 1
+      endif
+!
+      if (dist_crit.eq.-1.) then
+	 if ( tstep.eq.3 ) then
+	    dist_crit = 2.35   ! deg
+!	    dist_crit = 2.5
+	 elseif ( tstep.eq.6 ) then 
+	    dist_crit = 3.75
+!	    dist_crit = 4.5
+	 else
+	    print*
+	    print*,'*** Erreur: Vous devez specifier une valeur pour DIST_CRIT'
+	    print*
+	    stop
+	 endif
+      endif
+!
+      if (vc.eq.-1.) then
+         if ( tropic .lt. 0 .and. phase .lt. 0) then
+            vc = 2.5      ! x 1.E5 s-1
+         else
+            vc = 5.0
+         end if
+      endif
+!
+      if (level.eq.-1) then
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+            level = 1000  ! hPa
+         else
+            level = 850
+         end if
+      end if
+!
+      if ( anticycl .eq. 0 ) then
+         isign = -1		! on suit les anticyclones
+         print*,'===>>> On suit les Anti-CYCLONES'
+         print*
+      else
+	 isign = 1		! on suit les cyclones
+         print*,'===>>> On suit les CYCLONES'
+         print*
+      endif
+!
+      if (fvort.eq.-1) then
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+            fvort = 800   ! km
+         else
+            fvort = 300
+         end if
+      end if
+!
+      if (fpres.eq.-1) then
+            fpres = 300   ! km
+      end if
+!
+      if (vortcnt.eq.0) then
+         print*,' ----------------------------------'
+         print*,' On suit les extremes de TOURBILLON'
+         print*,' ----------------------------------'
+         print*
+         VORT_C=.TRUE.
+         DO_CIRC=.TRUE.
+      else
+         print*,'----------------------------------'
+         print*,' On suit les extremes de PRESSION '
+         print*,'----------------------------------'
+         print*
+         if ( tropic .lt. 0 .and. phase .lt. 0) then
+            VORT_C=.FALSE.
+         else
+            VORT_C=.true.
+         end if
+         DO_CIRC=.FALSE.
+      end if
+!
+      if (tcrad.eq.-1) then
+         tcrad=150  ! km
+      end if
+!
+      if (hcrit.eq.-1) then
+         hcrit=935  ! dam - pour 250-850 hPa
+      end if
+!
+      if (bcrit.eq.-1) then
+         bcrit = 25 ! m
+      end if
+!
+      if (tdwind.eq.-1) then
+         tdwind=22  ! noeuds
+      end if
+!
+      print*
+      print*,' ----------------------------------'
+      print*,' -----       Parametres       -----'
+      print*,' ----------------------------------'
+      print*,'  tstep (h)        : ',tstep 
+      print*,'  npt (npas)       : ',npt
+      print*,'  dist_crit (deg)  : ',dist_crit
+      print*,'  fvort (km)       : ',fvort
+      print*,'  fpres (km)       : ',fpres
+      print*,'  vc (x10-5 s-1)   : ',vc
+      print*,' ----------------------------------'
+      print*,'  Niveau (hPa)     : ',level
+      print*,' ----------------------------------'
+      print*
+!
+      if ( tropic .ge. 0 .or. phase .ge. 0) then
+         print*,' ----------------------------------'
+         print*,'  TC radius (km)   : ',tcrad
+         print*,'  DZ min (dam)     : ',hcrit
+         print*,'  TD wind (knt)    : ',tdwind
+         print*,'  B  max (m)       : ',bcrit
+         print*,' ----------------------------------'
+         print*
+      end if
+!
+      end subroutine set_track_options
