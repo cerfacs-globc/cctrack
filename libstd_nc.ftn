@@ -1,0 +1,635 @@
+c     
+c Librairies des substituts aux sous-routines RPN de rmnxlib
+c
+      subroutine gdadgd(d, s1, s2, fm1, fm2, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s1(ni,nj), s2(ni,nj)
+      real fm1, fm2
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            d(i,j) = fm1 * s1(i,j) + fm2 * s2(i,j)
+
+         enddo
+      enddo
+
+      return
+      end
+c*************************************************
+      subroutine gdmpgd(d, s1, s2, fm, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s1(ni,nj), s2(ni,nj)
+      real fm
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            d(i,j) = fm * s1(i,j) * s2(i,j)
+
+         enddo
+      enddo
+
+      return
+      end
+c*************************************************
+      subroutine gdadcn(d, s, cn, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s(ni,nj)
+      real cn
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            d(i,j) = cn + s(i,j)
+
+         enddo
+      enddo
+
+      return
+      end
+c*************************************************
+      subroutine gdmpcn(d, s, cn, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s(ni,nj)
+      real cn
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            d(i,j) = cn * s(i,j)
+
+         enddo
+      enddo
+
+      return
+      end
+c*************************************************
+      subroutine gddvgd(d, s1, s2, fm, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s1(ni,nj), s2(ni,nj)
+      real fm
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            if (s2(i,j).ne.0.0) then
+               d(i,j) = fm * s1(i,j) / s2(i,j)
+            else
+               d(i,j) = 0.0
+            endif
+
+         enddo
+      enddo
+
+      return
+      end
+c*************************************************
+      subroutine gdsqrt(d, s, fm, ni, nj, cut)
+      implicit none
+
+      integer ni, nj, cut
+      real d(ni,nj), s(ni,nj)
+      real fm
+      integer i, j
+
+      do j = (1+cut), (nj-cut)
+         do i = (1+cut), (ni-cut)
+
+            d(i,j) = fm * sqrt(s(i,j))
+
+         enddo
+      enddo
+
+      return
+      end
+c*
+c**********************************************************************
+      subroutine coriol(co, d60, pi, pj, ni, nj)
+      implicit none
+
+      integer ni, nj
+      real co(ni, nj), d60, pi, pj
+
+*notes    - sin(lat) = (re2-r2) / (re2+r2)
+*         - re = (earth radius) * (1+sin(60))/d60
+*         - mean earth radius = 6371 km.
+*         - cf = 2.0 * omega
+
+      real re, re2, r2
+      real x, y, y2, cf
+      integer i, j
+
+      cf  = 1.458e-4
+      re  = 1.866025 * 6.371e6 / d60
+      re2 = re*re
+
+      do j = 1, nj
+         y = float(j) - pj
+         y2 = y * y
+         do i = 1, ni
+            x  = float(i) - pi
+            r2 = x * x + y2
+            co(i,j) = cf * (re2-r2) / (re2+r2)
+         enddo
+      enddo
+      
+      return
+      end
+c*
+c**********************************************************************
+      subroutine ccard(cles, def, val, ncles, npos)
+      implicit none
+
+c* Subroutine to process arguments to a fortran program
+c* This only works if iargc() and getarg are available...
+c*
+c* Maximum 100 keys and arguments
+c*
+c* No distinction between upper and lower case
+c*
+      integer max_n
+      parameter (max_n = 100)
+
+      integer ncles, npos
+      character*(*) cles(ncles), def(ncles), val(ncles)
+      character*80 cle_up(max_n)
+
+      integer argc, arg_num, count, iargc, keynum, keynum2, noval
+      character*80 argv(max_n), argp, clep, clep2
+
+      integer dummy_len
+      character*80 dummy
+
+      integer real_len
+
+c* Get number of arguments
+      argc = iargc()
+      
+c* Process all arguments
+      arg_num = 1
+      do while (arg_num.le.argc)
+            
+c* Get argument in argv
+         call getarg(arg_num, argv(arg_num))
+            
+c* Put arg uppercase if a key
+         do keynum = 1, ncles
+            clep = cles(keynum)
+            dummy_len = real_len(clep)
+            if (clep(dummy_len:dummy_len).eq.'.') then
+               clep(dummy_len:dummy_len) = ' '
+            endif
+            argp = argv(arg_num)
+            if (argp(1:1).eq.'-') then
+               if (argp(2:real_len(argp)).eq.clep) then
+                  call caseup(argv(arg_num), argv(arg_num))
+               endif
+            endif
+         enddo
+         
+         arg_num = arg_num + 1
+         
+      enddo
+
+c* Parse all keys
+      do keynum=1,ncles
+               
+c* Put all keys uppercase
+         cle_up(keynum) = ''
+         call caseup(cle_up(keynum), cles(keynum))
+         
+      enddo
+
+c* Parse all args
+      arg_num = 1
+      do while (arg_num.le.argc)
+         
+         if ((argv(arg_num).eq.'-H').or.(argv(arg_num).eq.'-HELP').or.
+     $        (argv(arg_num).eq.'-h').or.(argv(arg_num).eq.'-help'))
+     $        then
+               
+c* Write help if help key is there, and stop
+            call write_help(cles, def, ncles)
+            stop
+            
+         else
+
+c* Parse all keys
+            keynum = 1
+            do while (keynum.le.ncles)
+c* If arg is a key
+               clep = cle_up(keynum)
+               dummy_len = real_len(clep)
+               if (clep(dummy_len:dummy_len).eq.'.') then
+                  clep(dummy_len:dummy_len) = ' '
+               endif
+               argp = argv(arg_num)
+               if (argp(2:real_len(argp)).eq.clep) then
+                  dummy = ''
+c* If there is an arg following the current one
+                  if ( (arg_num+1).le.argc) then
+c* Read next arg
+                     dummy = argv(arg_num+1)
+                     dummy_len = real_len(dummy)
+                     if (dummy(dummy_len:dummy_len).eq.'.') then
+                        dummy(dummy_len:dummy_len) = ' '
+                     endif
+                     noval = 0
+c* Parse all keys to see if next arg is a key or not
+c* If a key, there is no value associated with current key
+                     do keynum2 = 1, ncles
+                        if (dummy(2:dummy_len).eq.cle_up(keynum2))
+     $                       then
+                           noval = 1
+                        endif
+                     enddo
+c* If a value is associated with the current key, put val to user's value
+                     if (noval.eq.0) then
+                        val(keynum) = dummy
+                        arg_num = arg_num + 1
+                     else
+c* If no value is associated with the current key, put val to def
+                        val(keynum) = def(keynum)
+                     endif
+                  else
+c* Last arg, so no value for that key => we put def
+                     val(keynum) = def(keynum)
+                  endif
+c* End loop
+                  keynum = ncles + 1
+               else
+c* Check next key
+                  keynum = keynum + 1
+               endif
+               
+            enddo
+            
+         endif
+         
+         arg_num = arg_num + 1
+         
+      enddo
+      
+      end
+
+
+c****************************************************
+      subroutine caseup(cle_out, cle_in)
+      implicit none
+
+c* Convert from lowercase to uppercase all chars
+
+      integer len_key, ch, ascii_num, real_len
+      integer ichar
+      character *(*) cle_out, cle_in
+
+      len_key = real_len(cle_in)
+      do ch=1,len_key
+         ascii_num = ichar(cle_in(ch:ch))
+         if ( (ascii_num.ge.97).and.(ascii_num.le.122)) then
+            cle_out(ch:ch) = char(ichar(cle_in(ch:ch)) - 32)
+         else
+            cle_out(ch:ch) = cle_in(ch:ch)
+         endif
+      enddo
+      
+      return
+      end
+
+c****************************************************
+      subroutine write_help(cles, def, ncles)
+      implicit none
+
+c* Subroutine to show help message
+
+      integer ncles, count, len, real_len
+      character*(*) cles(ncles), def(ncles)
+      character*80 temp, temp2
+
+      print*
+      print*
+      print*,'Call arguments :'
+      print*
+      do count=1,ncles
+         temp = cles(count)
+         temp2 = def(count)
+         len = real_len(temp)
+         if (temp(len:len).eq.'.') then
+            temp(len:len) = ' '
+            len = len - 1
+         endif
+         write(*,10000) '-'//temp(1:len), temp2(1:real_len(temp2))
+10000    format(a20,1x,'default = ',a)
+      enddo
+      print*
+
+      return
+      end
+
+      integer function find_next(ligne, i, ch)
+      implicit none
+
+      character*(*) ligne
+      character*1 ch
+      integer i, real_len, len
+
+      len = real_len(ligne)
+
+      do while ((ligne(i:i).ne.ch).and.(i.le.len))
+         i = i + 1
+      enddo
+      
+      if (i.le.len) then
+         find_next = i
+      else
+         find_next = -1
+      endif
+
+      return
+      end
+
+      integer function find_2next(ligne, i, ch)
+      implicit none
+
+      character*(*) ligne
+      character*1 ch
+      integer i, real_len, len
+
+      len = real_len(ligne)
+
+      do while ((ligne(i:i).ne.ch).and.(i.lt.len))
+         i = i + 1
+      enddo
+      i = i + 1
+      do while ((ligne(i:i).ne.ch).and.(i.lt.len))
+         i = i + 1
+      enddo
+      
+      if (i.lt.len) then
+         find_2next = i
+      else
+         find_2next = -1
+      endif
+
+      return
+      end
+
+      character*(*) function getchar(ligne, i1, i2)
+      implicit none
+
+      character*(*) ligne
+      integer i1, i2, i3, i, real_len, len
+
+      len = real_len(ligne)
+
+      i = i1
+
+      do while (ligne(i:i).eq." ")
+         i = i + 1
+      enddo
+
+      if (ligne(i:i).eq."'") then
+         i = i + 1
+         i3 = i2 - 1
+      else
+         i3 = i2
+      endif
+      read(ligne(i:i3),'(a)') getchar
+
+      return
+      end
+
+      subroutine banner_debut(pgm, ver)
+      implicit none
+
+      character*50 pgm
+      character*10 ver
+      integer time, clock, clock_time
+      character*24 ctime, date
+      real clock_start
+      common /clock/ clock_start
+      save /clock/
+
+#ifdef sgi
+      clock_time = 0
+#else
+#ifdef Linux
+      clock_time = 0
+#else
+      call cpu_time(clock_start)
+#endif
+#endif
+      date = ctime(time())
+
+      print*,'1'
+      write(*, 60) pgm, ver, date
+ 60   format('   *******************************************************
+     $*************************************'/
+     $     3x,'*',90x,'*'/,3x,'*',10x,a50,16x,'V',a10,3x,'*'/,
+     $     3x,'*',90x,'*'/,3x,'*',90x,'*'/,
+     $     3x,'*',10x,a24,26x,26x,4x,'*'/,
+     $     3x,'*',90x,'*'/,3x,'*',10x,'BEGIN EXECUTION',
+     $     65x,'*'/,3x,'*',90x,'*'/,'   ********************************
+     $************************************************************'/)
+      
+      return
+      end
+
+      subroutine banner_fin(pgm, status)
+      implicit none
+
+      character*50 pgm
+      character*10 status
+      integer time, clock, clock_time
+      real clktime, clock_finish
+      character*24 ctime, date
+      real clock_start
+      common /clock/ clock_start
+      save /clock/
+
+#ifdef sgi
+      clock_time = 0
+      clktime = float(clock_time) / float(1000000)
+#else
+#ifdef Linux
+      clock_time = 0
+      clktime = float(clock_time) / float(1000000)
+#else
+      call cpu_time(clock_finish)
+      clktime = clock_finish - clock_start
+#endif
+#endif
+
+      date = ctime(time())
+
+      write(*, '(a1)') '1'
+      write(*, 60) pgm, status, date, clktime
+ 60   format('   *******************************************************
+     $*************************************'/
+     $     3x,'*',90x,'*'/,3x,'*',10x,a50,16x,1x,a10,3x,'*'/,
+     $     3x,'*',90x,'*'/,
+     $     3x,'*',10x,a24,26x,26x,4x,'*'/,
+     $     3x,'*',90x,'*'/,3x,'*',10x,'END EXECUTION  ',
+     $     65x,'*'/,3x,'*',90x,'*'/,3x,'*',10x,'CP SECS = ',f10.3,
+     $     60x,'*'/,3x,'*',90x,'*'/,'   ********************************
+     $************************************************************'/)
+      
+      return
+      end
+
+      subroutine qqexit(status)
+      implicit none
+
+      integer status
+
+      call exit(status)
+
+      return
+      end
+
+************************************************************************
+c     
+c Librairies I/O NETCDF
+c
+************************************************************************
+c
+c***********************************************************************
+c---- Fonction GET_DIMGRILLE                                         ---
+c***********************************************************************
+      integer get_dimgrille(ni, nj, iun, getvar)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ier
+      integer ndims
+      integer varid
+      integer dimids(NF_MAX_VAR_DIMS)
+      character*(NF_MAX_NAME) latname, lonname
+      
+c
+c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
+c     
+      ier = nf_inq_varid(iun, getvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (ndims .ne. 3) then
+         print*
+         print*,'get_dimgrille_nc: Critical Problem: coordinate number of dimensions is not 3: ', ndims
+         print
+         return -1
+      endif
+
+      ier = nf_inq_vardimid(iun, varid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_dimname(iun, dimids(2), latname)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      ier = nf_inq_dimlen(iun, dimids(2), nj)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_dimname(iun, dimids(1), lonname)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      ier = nf_inq_dimlen(iun, dimids(1), ni)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      print*
+      print*,'Dimension ',lonname,' ni=',ni,' and ',latname,' nj=',nj
+      print*
+      
+      return varid
+      end
+
+c
+c***********************************************************************
+c---- Fonction GDLL                                                  ---
+c***********************************************************************
+      integer gdll(lat, lon, iun, varid, ni, nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ier
+      integer ni, nj
+      
+      integer ndims
+      integer i, j
+      integer dimids(NF_MAX_VAR_DIMS)
+
+      character*(NF_MAX_NAME) latname, lonname
+      real lat(ni,nj), lon(ni,nj)
+
+      real, dimension (:), allocatable :: lat1d
+      real, dimension (:), allocatable :: lon1d
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (ndims .ne. 3) then
+         print*
+         print*,'gdll: Critical Problem: coordinate number of dimensions is not 3: ', ndims
+         print
+         return -1
+      endif
+
+c
+c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
+c     
+      ier = nf_inq_varndims(iun, varid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      allocate ( lat1d(nj) )
+      ier = nf_get_var(iun, dimids(2), lat1d)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      print*, 'gdll: READ latitude successful'
+
+      do j=1,nj
+         do i=1,ni
+            lat(i,j) = lat1d(j)
+         enddo
+      enddo
+      deallocate(lat1d)
+      
+      allocate ( lon1d(ni) )
+      ier = nf_get_var(iun, dimids(1), lon1d)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      print*, 'gdll: READ longitude successful'
+
+      do j=1,nj
+         do i=1,ni
+            lon(i,j) = lon1d(i)
+         enddo
+      enddo
+      deallocate(lon1d)
+      
+      return 0
+      end

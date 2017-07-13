@@ -7,7 +7,7 @@ c***********************************************************************
       implicit none
 
       integer ni, nj
-      real  lon(ni,nj)
+      real lon(ni,nj)
       integer global
 
       real    dx, next_lon
@@ -72,7 +72,7 @@ c***********************************************************************
                IF(SLAT(I,J).LE.0.)SLATT=-20.
                IF(SLAT(I,J).GT.0.)SLATT=20.
             ENDIF
-            FC(I,J)=2.*OME*SIND(SLATT) ! coriolis parameter
+            FC(I,J)=2.*OME*SIN(SLATT*K_DEGTOR) ! coriolis parameter
          END DO
       END DO
 
@@ -138,7 +138,7 @@ c***********************************************************************
                IF(LAT(I,J).LE.0.)LATT=-20.
                IF(LAT(I,J).GT.0.)LATT=20.
             ENDIF
-            FC=2.*OME*SIND(LATT) ! coriolis parameter
+            FC=2.*OME*SIN(LATT*K_DEGTOR) ! coriolis parameter
             ut(i,j) = -1.0 * wk1(i,j) / fc
             vt(i,j) = wk2(i,j) / fc
          END DO
@@ -206,7 +206,8 @@ c***********************************************************************
             if (j .lt. 1 ) cycle
             if (j .gt. nj) cycle
 
-            call GCPAZD(c_lat, c_lon, lat(i,j), lon(i,j), daz, DIST)
+            call GCPAZD(float(c_lat), float(c_lon), lat(i,j), lon(i,j),
+     $                  daz, DIST)
             if ( dist .le. radius * 1.E3 ) then
                if ( field(i,j) .gt. max ) then
                   max = field(i,j)
@@ -422,8 +423,9 @@ c     Rayon moyen de la Terre
 
       dlat = 0.0
 
-      a = (sind(dlat/2.0))**2 +
-     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      a = (sin(dlat/2.0*K_DEGTOR))**2 +
+     $     cos(lat1*K_DEGTOR)*cos(lat2*K_DEGTOR)*
+     $     (sin(dlon/2.0*K_DEGTOR))**2
       c = 2.0 * atan2(sqrt(a),sqrt(1-a))
       dx= R * c * fact
 
@@ -436,8 +438,9 @@ c     Rayon moyen de la Terre
       dlon = 0.0
       dlat = lat2 - lat1
 
-      a = (sind(dlat/2.0))**2 +
-     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      a = (sin(dlat/2.0*K_DEGTOR))**2 +
+     $     cos(lat1*K_DEGTOR)*cos(lat2*K_DEGTOR)*
+     $     (sin(dlon/2.0*K_DEGTOR))**2
       c = 2.0 * atan2(sqrt(a),sqrt(1-a))
       dy= R * c * fact
       if(dlat.lt.0.0)then
@@ -447,14 +450,15 @@ c     Rayon moyen de la Terre
       dlon = lon2 - lon1
       dlat = lat2 - lat1
 
-      a = (sind(dlat/2.0))**2 +
-     $     cosd(lat1)*cosd(lat2)*(sind(dlon/2.0))**2
+      a = (sin(dlat/2.0*K_DEGTOR))**2 +
+     $     cos(lat1*K_DEGTOR)*cos(lat2*K_DEGTOR)*
+     $     (sin(dlon/2.0*K_DEGTOR))**2
       c = 2.0 * atan2(sqrt(a),sqrt(1-a))
       dt= R * c * fact
 *     
       dt2=sqrt(dx**2+dy**2)
       if(dt2.ne.0.0)then
-         dir=acosd(dy/dt2)
+         dir=acos(dy/dt2)/K_DEGTOR
          if(dx.lt.0.0)then
             dir=360.-dir
          endif
@@ -602,6 +606,7 @@ c     Local Variables
 c***********************************************************************
 c---- Sous-routine GET_TIMES                                         ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine get_times(year, month, day, hour, nstamp,
      $     ntimes, nincr, hi, hf, iun, nomvar, ip1, ntw)
       implicit none
@@ -621,7 +626,7 @@ c***********************************************************************
       character*12 etiket
       character*2 nomvar_f
 
-      real,allocatable,dimension (:) :: ibwork
+      integer,allocatable,dimension (:) :: ibwork
 
 
       integer fstprm, fstinl, newdate
@@ -643,7 +648,7 @@ c***********************************************************************
       nk = k - 1
 
       if (nk.gt.0) then
-	 allocate(ibwork(nk))
+         allocate(ibwork(nk))
          call c_sort(nstamp, ibwork, nk)
          call c_sort(vip2, ibwork, nk)
          deallocate (ibwork)
@@ -669,38 +674,135 @@ c***********************************************************************
          day(ntimes) = curdate - (year(ntimes)*10000) -
      $        (month(ntimes)*100)
          hour(ntimes) = curhour / 1000000
-	 if (k.gt.1) then
+       if (k.gt.1) then
             call difdat(nstamp(k-1), nstamp(k), nnincr)
             nnincr = abs(nnincr)
             if (nnincr.ne.nincr) then
                print*
-	       print*,'Time increment is not constant in the datafile.'
-	       print*,'It must be for make_tracks to work.'
-	       print*,'Aborting...'
-	       stop
+          print*,'Time increment is not constant in the datafile.'
+          print*,'It must be for make_tracks to work.'
+          print*,'Aborting...'
+          stop
             endif
          endif
       enddo
 
       IF(NINCR.LE.0.OR.NINCR.GT.24) then
-	 print*
-	 print*,'GET_TIMES: Invalid time increment'
-	 stop
+       print*
+       print*,'GET_TIMES: Invalid time increment'
+       stop
       else
-	 print*
-	 print*,'Les donnees sont a toutes les :',NINCR,'heures'
-	 print*
+       print*
+       print*,'Les donnees sont a toutes les :',NINCR,'heures'
+       print*
       end if
 
       IF(NTIMES.EQ.0.OR.NTIMES.GT.NTW) then
-	 print*
-	 print*,'GET_TIMES: NTIMES greater then NTW !!! Stop'
-	 stop
+         print*
+         print*,'GET_TIMES: NTIMES greater then NTW !!! Stop'
+         stop
       end if
 
       return
       end
 
+#else
+
+      subroutine get_times(year, month, day, hour, nstamp,
+     $     ntimes, nincr, iun, nomvar, ntw)
+      implicit none
+
+      USE datetime_module
+
+      TYPE(datetime)  :: dat_a, dat_b
+      TYPE(timedelta) :: dif_dat, prev_dif_dat
+      
+      integer ntw, iun, naj
+      integer year(ntw), month(ntw), day(ntw), hour(ntw)
+      character*256 nomvar
+      integer ntimes, nincr
+
+      integer ier
+      integer liste(ntw),infon,vip2(ntw)
+      real*8 nstamp(ntw)
+
+      integer nomvarid, ndims, dimids(NF_MAX_VAR_DIMS)
+
+      character*2 nomvar_f
+
+      integer,allocatable,dimension (:) :: ibwork
+      integer,allocatable,dimension (:) minutes
+      real,allocatable,dimension (:) :: seconds
+
+      integer i, k, cmcstamp, curdate, curhour, nnincr, t
+
+c     Get ID of nomvar time
+      ier = nf_inq_varid(iun, trim(nomvar), nomvarid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Get Dimension ID of time
+      ier = nf_inq_vardimid(iun, getvarid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Get number of time steps
+      ier = nf_inq_dimlen(iun, dimids(1), ntimes)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Read times
+      ier = nf_get_var_double(iun, nomvarid, nstamp)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      print*, 'get_times: READ ',nomvar,' successful'
+      
+      allocate(minutes(ntw))
+      allocate(seconds(ntw))
+
+      do i=1,ntimes
+         ier = get_calendar(year(i), month(i), day(i), hour(i), minutes(i), seconds(i), tunits, nstamp(i), ntimes)
+         if (i.ge.1) then
+            dat_b = datetime(year(i), month(i), day(i), hour(i), minutes(i))
+            dif_dat = dat_b - dat_a
+            if (i.ge.2) then
+               if (dif_dat%total_hours() .ne. prev_dif_dat%total_hours()) then
+                  print*
+                  print*,'Time increment is not constant in the datafile.'
+                  print*,'It must be for make_tracks to work.'
+                  print*,'Aborting...'
+                  stop
+               endif
+            endif
+            prev_dif_dat = dif_dat
+         endif
+         dat_a = datetime(year(i), month(i), day(i), hour(i), minutes(i))
+      enddo
+      nincr = dif_dat%total_hours()
+
+      if (ntimes.le.0) then
+         print*
+         print*,'Nombre de temps egal a zero.'
+         print*,'Impossible de continuer.'
+         print*
+         stop
+      endif
+
+      IF(NINCR.LE.0.OR.NINCR.GT.24) then
+       print*
+       print*,'GET_TIMES: Invalid time increment'
+       stop
+      else
+       print*
+       print*,'Les donnees sont a toutes les :',NINCR,'heures'
+       print*
+      end if
+
+      IF(NTIMES.EQ.0.OR.NTIMES.GT.NTW) then
+         print*
+         print*,'GET_TIMES: NTIMES greater then NTW !!! Stop'
+         stop
+      end if
+
+      deallocate(minutes)
+      deallocate(seconds)
+
+      return
+      end
+#endif
 c***********************************************************************
 c---- Sous-routine GRADIENT_WIND_FACTOR                              ---
 c***********************************************************************
@@ -716,9 +818,9 @@ c***********************************************************************
 !     Valid both hemispheres
 !     
 !     ARGUMENTS
-      INTEGER NI,NJ		!defined below in COMMON /GRID/
-      REAL	H(NI*NJ)	!.rf.ra	input geopotential field
-      REAL	F_GRAD(NI*NJ)	!.wf.ra	ouput gradient wind factor
+      INTEGER NI,NJ      !defined below in COMMON /GRID/
+      REAL   H(NI*NJ)   !.rf.ra   input geopotential field
+      REAL   F_GRAD(NI*NJ)   !.wf.ra   ouput gradient wind factor
       REAL    delta_x(NI*NJ), delta_y(NI*NJ)
       integer gdid
 
@@ -762,10 +864,10 @@ c***********************************************************************
 
             ier = gdllfxy(gdid, SLAT, SLON, I*1., J*1., 1)
             IF(SLAT.LE.0.0)THEN
-               FIJ=2.*OME*SIND(MIN(SLAT,-20.))
+               FIJ=2.*OME*SIN(MIN(SLAT,-20.)*K_DEGTOR)
                IHEM=-1
             ELSE
-               FIJ=2.*OME*SIND(MAX(SLAT,20.))
+               FIJ=2.*OME*SIN(MAX(SLAT,20.)*K_DEGTOR)
                IHEM=1
             ENDIF
 C     
@@ -787,7 +889,7 @@ C
 c           Iteratively compute Ro = KV/f then multiply V 1/(1+Ro)
 c           and recompute Ro
             DO K=1,5
-               Ro=MIN(0.5,MAX(-0.25,FK*V/FIJ))		
+               Ro=MIN(0.5,MAX(-0.25,FK*V/FIJ))      
                V=VG/(1.+Ro)
             END DO
             F_GRAD(IJ)=V/VG
@@ -842,9 +944,9 @@ c     Local variables
          X1=X(I1)
          Y1=Y(I1)
          IF (I1.EQ.N) THEN
-	    I2=1
+       I2=1
          ELSE
-	    I2=I1+1
+       I2=I1+1
          END IF
          X2=X(I2)
          Y2=Y(I2)
@@ -860,20 +962,20 @@ C
 C     Check to see if we're on the line segment (0=<D=<1)
 C     
          IF (D.GE.0. .AND. D.LE.1.) THEN
-	    X4=X1+D*X2MX1	!Compute (X4,Y4) - the foot of the perpendicular
-	    Y4=Y1+D*Y2MY1
-         ELSE			!Take (X4,Y4) as (X1,Y1)
-	    X4=X1
-	    Y4=Y1	    
-	    I2=0                !So we know this is a vertex
+       X4=X1+D*X2MX1   !Compute (X4,Y4) - the foot of the perpendicular
+       Y4=Y1+D*Y2MY1
+         ELSE         !Take (X4,Y4) as (X1,Y1)
+       X4=X1
+       Y4=Y1       
+       I2=0                !So we know this is a vertex
          END IF
          ASQ=(XX-X4)**2 + (YY-Y4)**2
          IF (I1MIN.EQ.0.OR.ASQ.LT.ASQMIN) THEN
-	    ASQMIN=ASQ
-	    I1MIN=I1
-	    I2MIN=I2 
-	    XC=X4
-	    YC=Y4		!Saves closest point
+       ASQMIN=ASQ
+       I1MIN=I1
+       I2MIN=I2 
+       XC=X4
+       YC=Y4      !Saves closest point
          END IF
       END DO
 C     
@@ -942,207 +1044,207 @@ c     Computes the NP(=n!) permutations of integers 1 to n
          IF(I2.NE.I1) THEN
          DO I3=1,NN
             IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	      IP=IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.4) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
-	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	      IP=IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.5) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
-	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	   DO I5=1,NN
-	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
-	      IP=IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	      IORDER(5,IP)=I5
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.6) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
-	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	   DO I5=1,NN
-	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
-	   DO I6=1,NN
-	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
-     $             I6.NE.I4.AND.I6.NE.I5)THEN
-	      IP=IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	      IORDER(5,IP)=I5
-	      IORDER(6,IP)=I6
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.7) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
+         IP=IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.4) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
+      IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+         IP=IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.5) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
+      IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+      DO I5=1,NN
+      IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+         IP=IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+         IORDER(5,IP)=I5
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.6) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
+      IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+      DO I5=1,NN
+      IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+      DO I6=1,NN
+      IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+     $        I6.NE.I4.AND.I6.NE.I5)THEN
+         IP=IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+         IORDER(5,IP)=I5
+         IORDER(6,IP)=I6
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.7) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
            IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	   DO I5=1,NN
-	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
-	   DO I6=1,NN
-	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+      DO I5=1,NN
+      IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+      DO I6=1,NN
+      IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
      $             I6.NE.I4.AND.I6.NE.I5)THEN
-	   do i7=1,nn
-	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
+      do i7=1,nn
+      IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
      $             I7.NE.I4.AND.I7.NE.I5.and.i7.ne.i6)THEN
-	      ip =IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	      IORDER(5,IP)=I5
-	      IORDER(6,IP)=I6
-	      IORDER(7,IP)=I7
-	   endif
-	   end do  
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.8) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
-	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	   DO I5=1,NN
-	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
-	   DO I6=1,NN
-	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
+         ip =IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+         IORDER(5,IP)=I5
+         IORDER(6,IP)=I6
+         IORDER(7,IP)=I7
+      endif
+      end do  
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.8) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
+      IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+      DO I5=1,NN
+      IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+      DO I6=1,NN
+      IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.
      $             I6.NE.I4.AND.I6.NE.I5)THEN
-	   do i7=1,nn
-	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
+      do i7=1,nn
+      IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.
      $             I7.NE.I4.AND.I7.NE.I5.and.i7.ne.i6)THEN
-	   do i8=1,nn
-	   IF(I8.NE.I1.AND.I8.NE.I2.AND.
+      do i8=1,nn
+      IF(I8.NE.I1.AND.I8.NE.I2.AND.
      $             I8.NE.I3.AND.I8.NE.I4.AND.
      $             I8.NE.I5.and.i8.ne.i6.and.
      $             i8.ne.i7)theN 
-	      ip =IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	      IORDER(5,IP)=I5
-	      IORDER(6,IP)=I6
-	      IORDER(7,IP)=I7
-	      IORDER(8,IP)=I8
-	   endif
-	   enddo
-	   endif
-	   end do  
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   ENDIF
-	   END DO
-	   END DO
-	ELSE IF(NN.EQ.9) THEN
-	   DO I1=1,NN
-	   DO I2=1,NN
-	   IF(I2.NE.I1) THEN
-	   DO I3=1,NN
-	   IF(I3.NE.I2.AND.I3.NE.I1) THEN
-	   DO I4=1,NN
-	   IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
-	   DO I5=1,NN
-	   IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
-	   DO I6=1,NN
-	   IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.I6.NE.I4.AND.
+         ip =IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+         IORDER(5,IP)=I5
+         IORDER(6,IP)=I6
+         IORDER(7,IP)=I7
+         IORDER(8,IP)=I8
+      endif
+      enddo
+      endif
+      end do  
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      ENDIF
+      END DO
+      END DO
+      ELSE IF(NN.EQ.9) THEN
+      DO I1=1,NN
+      DO I2=1,NN
+      IF(I2.NE.I1) THEN
+      DO I3=1,NN
+      IF(I3.NE.I2.AND.I3.NE.I1) THEN
+      DO I4=1,NN
+      IF(I4.NE.I1.AND.I4.NE.I2.AND.I4.NE.I3)THEN
+      DO I5=1,NN
+      IF(I5.NE.I1.AND.I5.NE.I2.AND.I5.NE.I3.AND.I5.NE.I4)THEN
+      DO I6=1,NN
+      IF(I6.NE.I1.AND.I6.NE.I2.AND.I6.NE.I3.AND.I6.NE.I4.AND.
      $             I6.NE.I5)THEN
-	   do i7=1,nn
-	   IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.I7.NE.I4.AND.
+      do i7=1,nn
+      IF(I7.NE.I1.AND.I7.NE.I2.AND.I7.NE.I3.AND.I7.NE.I4.AND.
      $             I7.NE.I5.and.i7.ne.i6)THEN
-	   do i8=1,nn
-	   IF(I8.NE.I1.AND.I8.NE.I2.AND.I8.NE.I3.AND.I8.NE.I4.AND.
+      do i8=1,nn
+      IF(I8.NE.I1.AND.I8.NE.I2.AND.I8.NE.I3.AND.I8.NE.I4.AND.
      $             I8.NE.I5.and.i8.ne.i6.and.i8.ne.i7)theN
-	   do i9=1,nn
-	   IF(I9.NE.I1.AND.I9.NE.I2.AND.I9.NE.I3.AND.I9.NE.I4.AND.
+      do i9=1,nn
+      IF(I9.NE.I1.AND.I9.NE.I2.AND.I9.NE.I3.AND.I9.NE.I4.AND.
      $             I9.NE.I5.and.i9.ne.i6.and.i9.ne.i7.and.i9.ne.i8)theN
-	      ip =IP+1
-	      IORDER(1,IP)=I1
-	      IORDER(2,IP)=I2
-	      IORDER(3,IP)=I3
-	      IORDER(4,IP)=I4
-	      IORDER(5,IP)=I5
-	      IORDER(6,IP)=I6
-	      IORDER(7,IP)=I7
-	      IORDER(8,IP)=I8
-	      IORDER(9,IP)=I9
-	   endif
-        enddo	
+         ip =IP+1
+         IORDER(1,IP)=I1
+         IORDER(2,IP)=I2
+         IORDER(3,IP)=I3
+         IORDER(4,IP)=I4
+         IORDER(5,IP)=I5
+         IORDER(6,IP)=I6
+         IORDER(7,IP)=I7
+         IORDER(8,IP)=I8
+         IORDER(9,IP)=I9
+      endif
+        enddo   
         endif
         enddo
         endif
@@ -1162,10 +1264,10 @@ c     Computes the NP(=n!) permutations of integers 1 to n
          print *,'PERM: permutations for ',NN,' items' 
       ENDIF
       NP=IP
-C	TYPE *,'NN=',NN,' # PERMUTATIONS=',NP
-C	DO IP=1,NP
-C	  WRITE(*,'(<NN>I2)')(IORDER(I,IP),I=1,NN)
-C	END DO
+C   TYPE *,'NN=',NN,' # PERMUTATIONS=',NP
+C   DO IP=1,NP
+C     WRITE(*,'(<NN>I2)')(IORDER(I,IP),I=1,NN)
+C   END DO
       RETURN
       END
 
@@ -1266,6 +1368,7 @@ c***********************************************************************
 c***********************************************************************
 c---- Sous-routine GET_NIV                                           ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine get_niv(NIV, NK, key, iun)
       implicit none
 
@@ -1293,7 +1396,7 @@ c***********************************************************************
       integer i, k, ip1rpn, kind
       real nivr
 
-      real,allocatable,dimension (:) :: ibwork
+      integer,allocatable,dimension (:) :: ibwork
 
 !
 !     On recupere l'information des parametres RPN
@@ -1343,10 +1446,67 @@ c***********************************************************************
       endif
 
       end subroutine get_niv
+#else
+      subroutine get_niv(NIV, NK, nomvar, iun)
+      implicit none
 
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer nk, iun
+      integer niv(K_NIVMAX)
+      character*256 nomvar
+
+      integer varid, ndims, lev_varid
+      integer ier
+
+      integer,allocatable,dimension (:) :: ibwork
+
+      ier = nf_inq_varid(iun, nomvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (ndims .ne. 4) then
+         print*
+         print*,"Le champ n'est pas de dimension 4... -> STOP !"
+         print*,"Impossible de trouver les niveaux..."
+         stop
+      endif
+      
+c     Get Dimension IDs of vertical levels
+      ier = nf_inq_vardimid(iun, lev_varid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Get number of vertical levels, assuming the following dimension order: (time, lev, lat, lon) !reversed in fortran
+      ier = nf_inq_dimlen(iun, dimids(3), nk)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Read vertical levels
+      ier = nf_get_var_int(iun, lev_varid, niv)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (nk.gt.0) then
+         allocate(ibwork(nk))
+         call c_sort(niv, ibwork, nk)
+         deallocate(ibwork)
+      else
+         print*
+         print*,'Nombre de niveaux egal a zero.'
+         print*,'Impossible de continuer.'
+         print*
+         stop
+      endif
+
+      end subroutine get_niv
+#endif
 c***********************************************************************
 c---- Sous-routine READ_FIELD                                        ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine read_field(buffer,datev,iun,nomvar,
      $     fm,ip1,ni,nj)
       implicit none
@@ -1364,20 +1524,77 @@ c***********************************************************************
       call gdmpcn(buffer, buffer, fm, ni, nj, 0)
       
       if (ier.lt.0) then
-	 print*
-	 print*,"Le champs suivant n est pas disponible -> STOP !"
-	 print*,"nomvar : ",nomvar
-	 print*,"level  :",ip1
-	 print*
-	 stop
+         print*
+         print*,"Le champs suivant n est pas disponible -> STOP !"
+         print*,"nomvar : ",nomvar
+         print*,"level  :",ip1
+         print*
+         stop
       endif
 
       return
       end
+#else
+      subroutine read_field(buffer,datev,iun,nomvar,fm,ip1,ni,nj)
+      implicit none
 
+      integer  iun, ip1
+      character*256 nomvar
+      integer datev, ni, nj
+      real buffer(ni,nj), fm
+
+      integer ier
+      integer varid, vartype, ndims
+      integer start(4), count(4)
+
+c
+c     Expected dimensions order with ncdump for 2D matrix: float psl(time, lat, lon) !!is reversed!! in fortran
+c     If 3D matrix we have float ta(time, lev, lat, lon) !!is reversed!! in fortran
+c
+      ier = nf_inq_varid(iun, nomvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_vartype(iun, varid, vartype)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (vartype.eq.NF_FLOAT .and. (ndims.eq.3 .or. ndims.eq.4) ) then
+         start(1) = 1
+         start(2) = 1
+         if (ndims.eq.3) then
+            start(3) = datev
+         else
+            start(3) = ip1
+            start(4) = datev
+         endif
+         count(1) = ni
+         count(2) = nj
+         if (ndims.eq.3) then
+            count(3) = 1
+         else
+            count(3) = 1
+            count(4) = 1
+         endif
+         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+      else
+         print*
+         print*,"Le champ n'est pas de type float et/ou n'est pas de dimension 3 ou 4... -> STOP !"
+         print*
+         stop
+      endif
+      
+      call gdmpcn(buffer, buffer, fm, ni, nj, 0)
+      
+      return
+      end
+#endif
 c***********************************************************************
 c---- Sous-routine READ_OROG                                         ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine read_orog(orog, iun, ni, nj)
       implicit none
 
@@ -1398,16 +1615,70 @@ c***********************************************************************
             print*
             orog(:,:)=0.0
          endif
-      else	
+      else   
 
          call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
-      endif	
+      endif   
       return
       end
+#else
+      subroutine read_orog(orog, iun, nomvar, ni, nj)
+      implicit none
 
+      integer  iun, ip1
+      character*256 nomvar
+      integer ni, nj
+      real orog(ni,nj)
+
+      integer ier
+      integer varid, vartype, ndims
+      integer start(2), count(2)
+
+c
+c     Expected dimensions order with ncdump for 2D matrix: float orog(lat, lon) !!is reversed!! in fortran
+c
+      ier = nf_inq_varid(iun, nomvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_vartype(iun, varid, vartype)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
+         start(1) = 1
+         start(2) = 1
+         count(1) = ni
+         count(2) = nj
+         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         if (ier .ne. nf_noerr) then
+            print*
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*,' Cannot read orography! Set field = 0 '
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*
+            orog(:,:)=0.0
+         else
+            call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
+         endif
+      else
+         print*
+         print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*,' Cannot read orography! Set field = 0 '
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*
+         orog(:,:)=0.0
+      endif
+      
+      return
+      end
+#endif
 !***********************************************************************
 !---- Sous-routine READ_LANDSEA                                      ---
 !***********************************************************************
+#ifndef NETCDF
       subroutine read_landsea(landsea, iun, ni, nj)
       implicit none
 
@@ -1430,10 +1701,62 @@ c***********************************************************************
       end if
 
       end subroutine read_landsea
+#else
+      subroutine read_landsea(landsea, iun, nomvar, ni, nj)
+      implicit none
 
+      integer  iun, ip1
+      character*256 nomvar
+      integer ni, nj
+      real landsea(ni,nj)
+
+      integer ier
+      integer varid, vartype, ndims
+      integer start(2), count(2)
+
+c
+c     Expected dimensions order with ncdump for 2D matrix: float landsea(lat, lon) !!is reversed!! in fortran
+c
+      ier = nf_inq_varid(iun, nomvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_vartype(iun, varid, vartype)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
+         start(1) = 1
+         start(2) = 1
+         count(1) = ni
+         count(2) = nj
+         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         if (ier .ne. nf_noerr) then
+            print*
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*
+            landsea(:,:)=0.0
+         endif
+      else
+         print*
+         print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*
+         landsea(:,:)=0.0
+      endif
+      
+      return
+      end
+#endif
 c***********************************************************************
 c---- Sous-routine FIND_UVSURFLEV                                    ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine find_uvsurflev(level,iun,ni,nj)
       implicit none
 
@@ -1477,7 +1800,7 @@ c***********************************************************************
 
       return
       end
-
+#endif
 c***********************************************************************
 c---- Sous-routine LINFIT                                            ---
 c***********************************************************************
@@ -1528,8 +1851,8 @@ c***********************************************************************
 !     Return u and v wind components from speed and direction
 
 !     ARGUMENTS
-      REAL	    U,V         ! Output u/v compts
-      REAL	    SPD,DIR     ! Input speed and direction
+      REAL       U,V         ! Output u/v compts
+      REAL       SPD,DIR     ! Input speed and direction
 
 !     ----------------------------------------------------------
 !     AUTHORS:       Jim Renwick
@@ -1556,10 +1879,10 @@ c***********************************************************************
 !     less than SCALE metres are smoothed 
 
 !     ARGUMENTS
-      INTEGER  NI,NJ		!.rl.r	number of columns,rows of input data
-      REAL*8   FIN(NI*NJ)	!.rf.ra input array
-      REAL     SCALE		!.rf.r	scale in metres to smooth
-      REAL*8   FOUT(NI*NJ)	!.wf.ra smoothed output array
+      INTEGER  NI,NJ      !.rl.r   number of columns,rows of input data
+      REAL*8   FIN(NI*NJ)   !.rf.ra input array
+      REAL     SCALE      !.rf.r   scale in metres to smooth
+      REAL*8   FOUT(NI*NJ)   !.wf.ra smoothed output array
       REAL     delta_x(NI*NJ)      
       REAL     delta_y(NI*NJ)      
 
@@ -1576,7 +1899,7 @@ c     Local variables
       REAL*8   WSUM, FSUM
 
       RADIUS=SCALE
-      RADIUS_SQ=RADIUS*RADIUS	
+      RADIUS_SQ=RADIUS*RADIUS   
 
       DO IJ=1,NI*NJ
          FDUMMY(IJ)=FIN(IJ)
@@ -1592,7 +1915,7 @@ c     Local variables
             DY=delta_y(IJ)
 
             IF(DX.GT.0.0)THEN
-               XD=RADIUS/DX	!X-DIST in index units to average over
+               XD=RADIUS/DX   !X-DIST in index units to average over
             ELSE
                XD=float(NI)
             ENDIF
@@ -1628,7 +1951,7 @@ c           Compute Cressman smoothing
                   IF(RSQ.LE.RADIUS_SQ)THEN
                      WGT=(RADIUS_SQ-RSQ)/(RADIUS_SQ+RSQ)
                      WSUM=WSUM+WGT
-                     FSUM=FSUM+WGT*FDUMMY(IIJJ)	
+                     FSUM=FSUM+WGT*FDUMMY(IIJJ)   
                      ece=ece+1
    
                   ENDIF
@@ -1657,8 +1980,8 @@ c***********************************************************************
 !     Take u and v wind components and turn into speed and direction
 
 !     ARGUMENTS
-      REAL	    U, V        ! Input u/v compts
-      REAL	    SPD, DIR    ! Output speed and direction
+      REAL    U, V        ! Input u/v compts
+      REAL    SPD, DIR    ! Output speed and direction
 
 !     ----------------------------------------------------------
 !     AUTHORS:       Jim Renwick
@@ -1679,6 +2002,7 @@ c     Local variables
       RETURN
       END
 
+#ifndef NETCDF      
 c***********************************************************************
 c---- Sous-routine EXTEND_LAM_GRID                                   ---
 c***********************************************************************
@@ -1714,15 +2038,15 @@ c        On trouve les parametres de le grille source
          call cigaxg(grtyp,pi,pj,d60,dgrw,ig1,ig2,ig3,ig4)
 
 c        On definie les paramteres de la grille etendue
-	 dref=d60/1000.0        ! en km
-	 ext=nint(500.0/dref)
+         dref=d60/1000.0        ! en km
+         ext=nint(500.0/dref)
          print*
          print*,"Extension de :",ext
          print*
          niext=ni+2*ext
          njext=nj+2*ext
-	 ext_i=ext
-	 ext_j=ext
+         ext_i=ext
+         ext_j=ext
          piext=pi+float(ext_i)
          pjext=pj+float(ext_j)
          call cxgaig(grtyp, ig1ext, ig2ext, ig3ext, ig4ext, piext, 
@@ -1731,19 +2055,19 @@ c        On definie les paramteres de la grille etendue
       else if (grtyp.eq.'L') then
 
 c        On trouve les parametres de le grille source
-	 call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
+         call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
 
-c        On definie les paramteres de la grille etendue
-	 ext_i=nint(5.0/dlon)
-	 ext_j=nint(5.0/dlat)
-	 print*
+c        On definit les parametres de la grille etendue
+         ext_i=nint(5.0/dlon)
+         ext_j=nint(5.0/dlat)
+         print*
          print*,"Extension de :", ext_i, ext_j
          print*
-	 niext=ni+2*ext_i
+         niext=ni+2*ext_i
          njext=nj+2*ext_j
-	 xlon0ext = xlon0 - ext_i * dlon 
-	 xlat0ext = xlat0 - ext_j * dlat
-	 call cxgaig(grtyp, ig1ext, ig2ext, ig3ext, ig4ext, xlat0ext,
+         xlon0ext = xlon0 - ext_i * dlon 
+         xlat0ext = xlat0 - ext_j * dlat
+         call cxgaig(grtyp, ig1ext, ig2ext, ig3ext, ig4ext, xlat0ext,
      $        xlon0ext, dlat, dlon)
 
       else
@@ -1751,14 +2075,14 @@ c        On definie les paramteres de la grille etendue
          print*,"[",grtyp,"]"
          print*
          print*,"Seulement les grilles de type N, S (PS) et L (LatLon)"
-	 print*,"sont supportees !"
+         print*,"sont supportees !"
          print*
          stop
 
       endif
 
       end subroutine extend_lam_grid
-      
+
 c***********************************************************************
 c---- Sous-routine EXTEND_GLB_GRID                                   ---
 c***********************************************************************
@@ -1787,18 +2111,18 @@ c     ----------------------------------------------------------
      $     ig3,ig4,swa,lng,dltf,ubc,extra1,extra2,extra3)
 
       if (grtyp.eq.'L') then
-	 print*,"grtyp  ",grtyp
+        print*,"grtyp  ",grtyp
 c        On trouve les parametres de le grille source
-	 call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
+        call cigaxg(grtyp,xlat0,xlon0,dlat,dlon,ig1,ig2,ig3,ig4)
       elseif (grtyp .eq. 'A') then
-	 print*,"grtyp  ",grtyp
-	 dlon=360.0/float(ni+1)
+        print*,"grtyp  ",grtyp
+        dlon=360.0/float(ni+1)
       elseif (grtyp .eq. 'B') then
-	 print*,"grtyp  ",grtyp
-	 dlon=360.0/float(ni)
+        print*,"grtyp  ",grtyp
+        dlon=360.0/float(ni)
       else
          print*
-         print*,"Seulement les grilles globales de type A, B et L«" 
+         print*,"Seulement les grilles globales de type A, B et L" 
          print*,"sont supportees!"
          print*
          stop
@@ -1811,7 +2135,67 @@ c        On trouve les parametres de le grille source
       niext=ni+2*ext_i
 
       end subroutine extend_glb_grid
+#else
 
+c***********************************************************************
+c---- Sous-routine EXTEND_LAM_GRID                                   ---
+c***********************************************************************
+      subroutine extend_lam_grid(niext,njext,lat,lon,ni,nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juin 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ni,nj,niext,njext
+      integer ext_i,ext_j,ext
+
+      dlon = lon(2) - lon(1)
+      dlat = lat(2) - lat(1)
+
+c     On definit les parametres de la grille etendue
+      ext_i=nint(5.0/dlon)
+      ext_j=nint(5.0/dlat)
+      print*
+      print*,"Extension de :", ext_i, ext_j
+      print*
+      niext=ni+2*ext_i
+      njext=nj+2*ext_j
+
+      end subroutine extend_lam_grid
+
+c***********************************************************************
+c---- Sous-routine EXTEND_GLB_GRID                                   ---
+c***********************************************************************
+      subroutine extend_glb_grid(niext, lon, ni)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juin 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ni, niext
+      integer ext_i
+
+      real dlon
+
+      dlon = lon(2) - lon(1)
+
+      ext_i=nint(5.0/dlon)
+      print*
+      print*,"Extension en i de :", ext_i
+      print*
+      niext=ni+2*ext_i
+
+      end subroutine extend_glb_grid
+
+#endif
 c***********************************************************************
 c---- Sous-routine CROP                                              ---
 c***********************************************************************
@@ -1882,10 +2266,10 @@ c     Grille coeur - copier-coller
 
 c     Extension Ouest
       do j=ext+1,njext-ext
-	 do i=ext,1,-1
-	    grad=bufext(ext+2,j)-bufext(ext+1,j)
-	    gradm=(pp*i+bp)*grad
-	    val=bufext(i+1,j)-gradm
+        do i=ext,1,-1
+            grad=bufext(ext+2,j)-bufext(ext+1,j)
+            gradm=(pp*i+bp)*grad
+            val=bufext(i+1,j)-gradm
             bufext(i,j)=val
          enddo
       enddo
@@ -1893,9 +2277,9 @@ c     Extension Ouest
 c     Extension Est
       do j=ext+1,njext-ext
          do i=niext-ext+1,niext
-	    grad=bufext(niext-ext,j)-bufext(niext-ext-1,j)
-	    gradm=(pn*(i-(niext-ext))+bn)*grad
-	    val=bufext(i-1,j)+gradm
+            grad=bufext(niext-ext,j)-bufext(niext-ext-1,j)
+            gradm=(pn*(i-(niext-ext))+bn)*grad
+            val=bufext(i-1,j)+gradm
             bufext(i,j)=val
          enddo
       enddo
@@ -1903,18 +2287,18 @@ c     Extension Est
 c     Extension Sud
       do j=ext,1,-1
          do i=ext+1,niext-ext
-	    grad=bufext(i,ext+2)-bufext(i,ext+1)
-	    gradm=(pp*j+bp)*grad
+            grad=bufext(i,ext+2)-bufext(i,ext+1)
+            gradm=(pp*j+bp)*grad
             val=bufext(i,j+1)-gradm
-	    bufext(i,j)=val
+            bufext(i,j)=val
          enddo
       enddo
 
 c     Extension Nord
       do j= njext-ext+1,njext
          do i= ext+1,niext-ext
-	    grad=bufext(i,njext-ext)-bufext(i,njext-ext-1)
-	    gradm=(pn*(j-(njext-ext))+bn)*grad
+            grad=bufext(i,njext-ext)-bufext(i,njext-ext-1)
+            gradm=(pn*(j-(njext-ext))+bn)*grad
             val=bufext(i,j-1)+gradm
             bufext(i,j)=val
          enddo
@@ -2012,26 +2396,26 @@ c     On etend les donnees par repetition en longitude
 
 c     Extension Ouest
       do j=1,nj
-	 do i=1,ext_i
-	    if (global .eq. 1) then ! i /= ni
-	       iext= ( ext_i + ni ) - (ext_i - i )
-	    else                    ! i = ni
-	       iext= ( ext_i + ni ) - (ext_i - i ) - 1
-	    end if
-	    bufext(i,j)=bufext(iext,j)
-	 enddo
+      do i=1,ext_i
+       if (global .eq. 1) then ! i /= ni
+          iext= ( ext_i + ni ) - (ext_i - i )
+       else                    ! i = ni
+          iext= ( ext_i + ni ) - (ext_i - i ) - 1
+       end if
+       bufext(i,j)=bufext(iext,j)
+      enddo
       enddo
 
 c     Extension Est
       do j=1,nj
-	 do i=niext-ext_i+1,niext
-	    if (global .eq. 1) then ! i /= ni 
-	       iext=  i - ni
-	    else                    ! i = ni
-	       iext=  i - ni + 1
-	    endif
-	    bufext(i,j)=bufext(iext,j)
-	 enddo
+      do i=niext-ext_i+1,niext
+       if (global .eq. 1) then ! i /= ni 
+          iext=  i - ni
+       else                    ! i = ni
+          iext=  i - ni + 1
+       endif
+       bufext(i,j)=bufext(iext,j)
+      enddo
       enddo
 
       end subroutine extend_glb
@@ -2271,6 +2655,7 @@ c
       return
       end
 
+#ifndef NETCDF
 c***********************************************************************
 c--- Fonction GET_DIMGRILLE                                          ---
 c***********************************************************************
@@ -2308,6 +2693,45 @@ c     On obtient la dimension de la grille
 
       return
       end
+#else
+c***********************************************************************
+c--- Fonction GET_DIMGRILLE                                          ---
+c***********************************************************************
+      integer function get_dimgrille(NI, NJ, iun, getvar)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par Christian Page                                -
+c     Avril 2017                                               -
+c     CERFACS                                                  -
+c     ----------------------------------------------------------
+
+      include 'netcdf.inc'
+      
+      integer ni, nj
+      integer iun, ier
+      integer getvarid, ndims, dimid(NF_MAX_VAR_DIMS)
+      character*256 getvar
+
+*     
+c     On obtient la dimension de la grille
+*     
+      ier = nf_inq_varid(iun, trim(getvar), getvarid)
+      ier = nf_inq_varndims(iun, getvarid, ndims)
+      get_dimgrille = nf_inq_vardimid(iun, getvarid, dimid)
+
+      if (get_dimgrille.lt.0) then
+         print*
+         print*,'Le champ ',trim(getvar),' n''est pas disponible.'
+         print*,'Impossible de continuer.'
+         print*
+         ier = nf_close(iun)
+         stop
+      endif
+
+      return
+      end
+#endif
 
 c***********************************************************************
 c---  Fonction FSTPRM_DIO                                            ---
@@ -2543,4 +2967,27 @@ c     ni     dimension des vecteurs
       if ( k .eq. 1 ) return
       goto 40
       end
-*
+
+#ifdef NETCDF
+*     
+c***********************************************************************
+c---- Sous-routine HANDLE_ERROR                                     ----
+c***********************************************************************
+      subroutine handle_error(error_code)
+      implicit none
+      include 'netcdf.inc'
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Avril 2017                                               -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer error_code
+
+      print *, 'Error: ', nf_strerror(error_code)
+      stop 2
+
+      end subroutine handle_error
+#endif
+      

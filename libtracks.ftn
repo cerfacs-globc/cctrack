@@ -279,7 +279,7 @@ C     See if <20° lat
                ier = gdxysval(gdid, PDS_VORT, vort, xp, yp, 1)
                TAREA_20=TAREA_20+DAREA
             ELSE
-               RAD_TEST=RADIUS		          
+               RAD_TEST=RADIUS                
             ENDIF
             FFVORT=PDS_VORT
             RVORT(IR)=FFVORT
@@ -297,7 +297,7 @@ c     dont start looking until RADIUS > RAD_LIM
                RAD_TEST=RADIUS-DRAD
             endif
             
-C     See if inside another cyclone's domain	
+C     See if inside another cyclone's domain   
             IF (RADIUS.GE.RAD_LIM.AND.
      $           IC.GT.1.AND.
      $           NCLOSE.GT.0.AND.
@@ -335,14 +335,16 @@ C     Compute circulation out to this boundary
             IR=0
             FCIRC=0
 c     DO RADIUS=NINT(DRAD),NINT(RAD_BOUND),NINT(DRAD)
-            DO RADIUS=DRAD,RAD_BOUND,DRAD
+C            DO RADIUS=DRAD,RAD_BOUND,DRAD
+            RADIUS=DRAD
+            DO WHILE (RADIUS.LE.RAD_BOUND)
                IR=IR+1
 c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
                DAREA_1=2.*PI*(RADIUS-DRAD)**2*FLOAT(IDTHETA)/360.
                DAREA_2=2.*PI*RADIUS**2*FLOAT(IDTHETA)/360
                DAREA=DAREA_2-DAREA_1
                
-c     FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)*1.E-5	  
+c     FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)*1.E-5     
                FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)
             END DO
             BLAT(ITC,IC)=BLATT
@@ -350,6 +352,7 @@ c     FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)*1.E-5
          ENDIF
 !     TCIRC(IC)=TCIRC(IC)+FCIRC
          TCIRC=TCIRC+FCIRC
+         RADIUS=RADIUS+DRAD
       END DO                    ! azimuthal loop
 !     TCIRC(IC)=1.2345E10* TCIRC(IC)
       TCIRC=1.2345E10* TCIRC
@@ -569,7 +572,7 @@ c     anterieur du cyclone
          Y_PREV=0.0
          X_EST=X_AV             !based on 500hPa wind only
          Y_EST=Y_AV             !based on 500hPa wind only 
-         P_EST=CPRESS(NN,IT)	!just use previous
+         P_EST=CPRESS(NN,IT)   !just use previous
          V_EST=CVORT(NN,IT)     !just use previous
       ENDIF
 
@@ -776,7 +779,7 @@ c***********************************************************************
       LOGICAL FOUND
 
       IG=0
-      DO IM=1,N_MATCHES	
+      DO IM=1,N_MATCHES   
          IC=ICM(IM)
          IT=ITM(IM)
          ITM(IM)=0
@@ -795,19 +798,19 @@ c***********************************************************************
                   ICG(I,NG(I))=IC
                   ITG(I,NG(I))=IT
                ENDIF
-            END DO	
+            END DO   
          END DO
          IF(.NOT.FOUND) THEN    !start a new group
             IG=IG+1      
             NG(IG)=1
             ICG(IG,1)=IC
-		ITG(IG,1)=IT
+      ITG(IG,1)=IT
              ENDIF
-	  END DO                !IM=1,N_MATCHES
-	  N_GROUPS=IG
+      END DO                !IM=1,N_MATCHES
+      N_GROUPS=IG
 c     Merge groups with elements in common
- 200	  NGP=N_GROUPS
-	  DO IG=1,NGP-1
+ 200         NGP=N_GROUPS
+      DO IG=1,NGP-1
              NGG=NG(IG)
              DO NN=1,NGG
                 IC=ICG(IG,NN)
@@ -866,7 +869,7 @@ C     loop through all groups containing more than one match
       DO IG=1,N_GROUPS
          IF(NG(IG).GT.1) THEN
             CALL perm(NG(IG),IORDER,N_PERM_GROUPS)
-            PMAX=-1.E30	
+            PMAX=-1.E30   
             IG_PERM_SAVE=0
 C     loop through these in the order of permutation IG_PERM 
             DO IG_PERM=1,N_PERM_GROUPS
@@ -884,7 +887,7 @@ C     loop through these in the order of permutation IG_PERM
                   IF(.NOT.(CUSED(IC)).AND..NOT.(TUSED(IT)))THEN
                      CUSED(IC)=.TRUE.
                      TUSED(IT)=.TRUE.
-                     PSUM=PSUM+PMN(IC,IT)	   
+                     PSUM=PSUM+PMN(IC,IT)      
                      IF(PMN(IC,IT).EQ.-999.) then 
                         PRINT *,'ERROR IN PERM PROBS 1'
                      end if
@@ -913,7 +916,7 @@ C     grab the ones with the largest total probability
                   ICM(IT)=IC
                   CUSED(IC)=.TRUE.
                   TUSED(IT)=.TRUE.
-                  PSUM=PSUM+PMN(IC,IT)	   
+                  PSUM=PSUM+PMN(IC,IT)      
                   IF(PMN(IC,IT).EQ.-999.)PRINT *,'ERROR IN PERM PROBS 2'
                ENDIF
             END DO
@@ -927,7 +930,7 @@ C     grab the ones with the largest total probability
             ICM(IT)=IC
             IF(PMN(IC,IT).LE.0.0)PRINT *,'ERROR IN PERM PROBS 3'
          ENDIF                  !end groups >1
-      END DO			!end IG=1,N_GROUPS
+      END DO         !end IG=1,N_GROUPS
 
       end subroutine match_center
 
