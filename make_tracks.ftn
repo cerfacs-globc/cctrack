@@ -363,6 +363,7 @@
       integer jstart            ! Point de grille terminal en j
       integer iend              ! Point de grille de depart en i
       integer jend              ! Point de grille terminal en j
+#ifndef NETCDF
       integer gdid              ! Descripteur de grille pour EZSCINT
       integer gdidext           ! Descripteur de la grille etendue pour EZSCINT
       integer gdll              ! Fonction EZSCINT
@@ -371,6 +372,7 @@
       integer ezqkdef           ! Fonction EZSCINT
       integer gdxyfll           ! Fonction EZSCINT
       integer gdllfxy           ! Fonction EZSCINT
+#endif
       integer i                 ! Compteur pour les points de grille en x
       integer j                 ! Compteur pour les points de grille en y
       integer ni                ! Dimension de la grille en x
@@ -380,7 +382,9 @@
       integer glbkey            ! Descripteur pour la grille
       integer glbkeygz          ! Descripteur pour les niveaux de GZ
       integer get_dimgrille     ! Fonction pour les dimensions de la grille
+#ifndef NETCDF
       integer fstprm_dio        ! Fonction pour les parametres de grille
+#endif
       integer ig1               ! Descripteur FST de la grille d'origine
       integer ig2               ! " "
       integer ig3               ! " "
@@ -557,7 +561,7 @@ c     On evalue la distance entre les points de grille
          ig4ext = ig4
       endif
 #else
-      call extend_glb_grid(NIEXT, glbkey, ni)
+      call extend_glb_grid(NIEXT, glbkey, ni, nj)
       njext  = nj
       ig1ext = ig1
       ig2ext = ig2
@@ -730,7 +734,7 @@ c     On evalue la distance entre les points de grille
 !     
 !||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 !----------------------------------------------------------------------
-!     Cyclone trakcing algorithm
+!     Cyclone tracking algorithm
 !----------------------------------------------------------------------
 !||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 !     
@@ -797,6 +801,7 @@ c     On evalue la distance entre les points de grille
 !----------------------------------------------------------------------
 !     1c. Lecture du Geopotentiel, de la PNM et du Vent
 !----------------------------------------------------------------------
+#ifndef NETCDF
          call read_field(PRESS,tstamp(n),iun01,'PN',1.0,0,ni,nj) ! hPa
 
          if (tropic .lt. 0 .and. phase .lt. 0) then
@@ -824,21 +829,61 @@ c     On evalue la distance entre les points de grille
             call read_field(work2,tstamp(n),iun01,'VV',K_UVCT,850, ! m/s
      $           ni,nj)
          endif
+#else
+         call read_field(PRESS,tstamp(n),iun01,'psl',0.01,0,ni,nj) ! Pa converted to hPa
+
+         if (tropic .lt. 0 .and. phase .lt. 0) then
+            call read_field(H,tstamp(n),iun01,'zg',0.1,level, ! m converted to dam
+     $           ni,nj)
+         else
+            call read_field(work1,tstamp(n),iun01,'zg',0.1,250, ! m converted to dam
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'zg',0.1,850, ! m converted to dam
+     $           ni,nj)
+            H(:,:)  = work1(:,:) - work2(:,:) ! 250-850 hPa (dam)
+
+            call interpolv(h3d, work1, work2, 'zg', tstamp(n), iun01, 
+     $           nivh, nkh, nivhm, nkhm, ni, nj) ! ! m converted to dam
+            HL(:,:) = h3d(:,:,7) - h3d(:,:,nkh) ! 600-900 hPa (dam)
+
+            call read_field(work1,tstamp(n),iun01,'uas',1.0/K_UVCT,slevel, ! m/s converted to knots
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'vas',1.0/K_UVCT,slevel, ! m/s converted to knots
+     $           ni,nj)
+            WINDSPD(:,:) = sqrt( work1(:,:)**2 + work2(:,:)**2 ) 
+
+            call read_field(work1,tstamp(n),iun01,'ua',1.0,850, ! m/s
+     $           ni,nj)
+            call read_field(work2,tstamp(n),iun01,'va',1.0,850, ! m/s
+     $           ni,nj)
+         endif
+#endif         
 
 !     U et V representent un estime de la vitesse et direction
 !     de deplacement des cyclones. On prend la moitie du vent
 !     a 500 hPa
-         call read_field(U,tstamp(n),iun01,'UU',(K_UVCT/2.0),500, ! m/s
+#ifndef NETCDF
+         call read_field(U,tstamp(n),iun01,'ua',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
-         call read_field(V,tstamp(n),iun01,'VV',(K_UVCT/2.0),500, ! m/s
+         call read_field(V,tstamp(n),iun01,'va',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
+#else
+         call read_field(U,tstamp(n),iun01,'ua',0.5,500, ! m/s
+     $        ni,nj)
+         call read_field(V,tstamp(n),iun01,'va',0.5,500, ! m/s
+     $        ni,nj)
+#endif
 
 !----------------------------------------------------------------------
 !     1d. Calcul du tourbillon et du vent thermique
 !----------------------------------------------------------------------
          if (tropic .lt. 0 .and. phase .lt. 0) then 
 !     Tourbillon du vent gradient (extra-tropique seulement)
+#ifndef NETCDF
             call grad_vort(VORT, h, delta_x, delta_y, lat, gdid, ni, nj)
+#else
+            call grad_vort(VORT, h, delta_x, delta_y, lat, lon, ni, nj)
+#endif
          else
 !     Tourbillon relatif
             call vorticity(VORT, work1, work2, delta_x, delta_y, ni, nj)
@@ -920,10 +965,12 @@ c     On evalue la distance entre les points de grille
          endif
 #endif
          
+#ifndef NETCDF
 !     Conversion du vent selon la grille (x-y) en ses composantes
 !     meteorologiques (lat-lon)
          call gdwdfuv(gdid, work1, work2, U, V, lat, lon, ni*nj)
          call sdtouv2d(U, V, work1, work2, ni, nj)
+#endif
 
 #ifndef NETCDF
 !----------------------------------------------------------------------
@@ -1495,14 +1542,17 @@ c     On evalue la distance entre les points de grille
       print*,' # total de trajectoires = ', n_track_tot
       print*
 !     
+#ifndef NETCDF
       ier=fstopc('MSGLVL','INFORM',.false.)
       ier = fstfrm(iun01)
       ier = fclos(iun01)
-#ifndef NETCDF
       if (nofst.ne.0) then
          ier = fstfrm(iun51)
          ier = fclos(iun51)
       endif
+#else
+      ier = nf_close(iun01)
+      if (ier .ne. nf_noerr) call handle_err(ier)
 #endif
       close(unit=iun52)
 !     
@@ -1737,9 +1787,11 @@ c######################################################################
 *     
 !     On attribue les valeurs par defaut aux cles non-specifiees
 !     
+#ifndef NETCDF
       if (silent.eq.0) then
          ier=fstopc('MSGLVL','WARNIN',.false.)
       endif
+#endif
 !     
       if (ip3.eq.-1) then
          read (def(4),*) ip3

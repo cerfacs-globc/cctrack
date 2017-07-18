@@ -512,7 +512,7 @@ c
 c***********************************************************************
 c---- Fonction GET_DIMGRILLE                                         ---
 c***********************************************************************
-      integer get_dimgrille(ni, nj, iun, getvar)
+      integer function get_dimgrille(ni, nj, iun, getvar)
       implicit none
 
 !     ----------------------------------------------------------
@@ -522,9 +522,13 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
+      include 'netcdf.inc'
+      
       integer ier
       integer ndims
-      integer varid
+      integer varid, iun
+      character*256 getvar
+      integer ni, nj
       integer dimids(NF_MAX_VAR_DIMS)
       character*(NF_MAX_NAME) latname, lonname
       
@@ -540,8 +544,9 @@ c
       if (ndims .ne. 3) then
          print*
          print*,'get_dimgrille_nc: Critical Problem: coordinate number of dimensions is not 3: ', ndims
-         print
-         return -1
+         print*
+         get_dimgrille = -1
+         return
       endif
 
       ier = nf_inq_vardimid(iun, varid, dimids)
@@ -560,15 +565,17 @@ c
       print*
       print*,'Dimension ',lonname,' ni=',ni,' and ',latname,' nj=',nj
       print*
+
+      get_dimgrille = varid
       
-      return varid
+      return
       end
 
 c
 c***********************************************************************
 c---- Fonction GDLL                                                  ---
 c***********************************************************************
-      integer gdll(lat, lon, iun, varid, ni, nj)
+      integer function gdll(lat, lon, iun, varid, ni, nj)
       implicit none
 
 !     ----------------------------------------------------------
@@ -578,9 +585,12 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
+      include 'netcdf.inc'
+      
       integer ier
       integer ni, nj
-      
+      integer varid, iun
+
       integer ndims
       integer i, j
       integer dimids(NF_MAX_VAR_DIMS)
@@ -597,8 +607,9 @@ c***********************************************************************
       if (ndims .ne. 3) then
          print*
          print*,'gdll: Critical Problem: coordinate number of dimensions is not 3: ', ndims
-         print
-         return -1
+         print*
+         gdll = -1
+         return
       endif
 
 c
@@ -630,6 +641,79 @@ c
          enddo
       enddo
       deallocate(lon1d)
+
+      gdll = 0
       
-      return 0
+      return
       end
+
+c***********************************************************************
+c---- Fonction GDLLFXY                                               ---
+c***********************************************************************
+      integer function gdllfxy(slat, slon, x, y, lat, lon, ni, nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ier
+      integer ni, nj
+      real x, y
+      real slat, slon
+      real lat(ni,nj), lon(ni, nj)
+
+      integer i, j
+
+      dlon = lon[2,1] - lon[1,1]
+      lonsw = lon[1,1]
+      dlat = lat[1,2] - lat[1,1]
+      latsw = lat[1,1]
+
+      slon = (x-1.0)*dlon+lonsw
+      slon = dmod((double) (slon + 360.0), (double) 360.0)
+      slat = (y-1.0)*dlat+latsw
+
+      gdllfxy = 0
+      
+      return
+      end
+
+c***********************************************************************
+c---- Fonction GDLLFXY                                               ---
+c***********************************************************************
+      integer function gdxyfll(slat, slon, x, y, lat, lon, ni, nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ier
+      integer ni, nj
+      real x, y
+      real slat, slon
+      real lat(ni,nj), lon(ni, nj)
+
+      integer i, j
+
+      dlon = lon[2,1] - lon[1,1]
+      lonsw = lon[1,1]
+      dlat = lat[1,2] - lat[1,1]
+      latsw = lat[1,1]
+
+      slon = (x-1.0)*dlon+lonsw
+      slon = dmod((double) (slon + 360.0), (double) 360.0)
+      slat = (y-1.0)*dlat+latsw
+
+      gdllfxy = 0
+      
+      return
+      end
+      

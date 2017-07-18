@@ -46,8 +46,13 @@ c***********************************************************************
 c***********************************************************************
 c---- Sous-routine GRAD_VORT                                         ---
 c***********************************************************************
+#ifndef NETCDF
       subroutine grad_vort(VORT, h, delta_x, delta_y, slat, gdid, 
      $     ni, nj)
+#else
+      subroutine grad_vort(VORT, h, delta_x, delta_y, slat, slon,
+     $     ni, nj)
+#endif
       implicit none
 
       real  vort(ni,nj), h(ni,nj), slat(ni,nj)
@@ -58,7 +63,12 @@ c***********************************************************************
       real slatt
       real ome
 
-      integer gdid, ni, nj
+      integer ni, nj
+#ifndef NETCDF
+      integer gdid
+#else
+      real slon(ni,nj)
+#endif
       integer i, j
 
       ome=K_OME
@@ -79,7 +89,11 @@ c***********************************************************************
       call derhn_gr(VG,H,'x',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
       call derhn_gr(UG,H,'y',10.0*K_GRAVITY,delta_x,delta_y,ni,nj)
       
+#ifndef NETCDF
       CALL GRADIENT_WIND_FACTOR(H,WORK1,delta_x,delta_y,gdid,ni,nj)
+#else
+      CALL GRADIENT_WIND_FACTOR(H,WORK1,delta_x,delta_y,slat,slon,ni,nj)
+#endif
       VG(:,:)= VG(:,:)*WORK1(:,:)/FC(:,:)
       UG(:,:)=-UG(:,:)*WORK1(:,:)/FC(:,:)
       WIND_SPD(:,:)=SQRT(UG(:,:)**2+VG(:,:)**2)
@@ -331,6 +345,7 @@ c***********************************************************************
 
       end subroutine surround_wc_mean
 
+#ifndef NETCDF
 c***********************************************************************
 c---- Sous-routine ECRIT_FST                                         ---
 c***********************************************************************
@@ -361,6 +376,7 @@ c***********************************************************************
 
       return
       end
+#endif
 
 c***********************************************************************
 c---- Sous-routine DIFFDIR                                           ---
@@ -710,9 +726,11 @@ c***********************************************************************
 
       subroutine get_times(year, month, day, hour, nstamp,
      $     ntimes, nincr, iun, nomvar, ntw)
+      USE datetime_module
+
       implicit none
 
-      USE datetime_module
+      include 'netcdf.inc'
 
       TYPE(datetime)  :: dat_a, dat_b
       TYPE(timedelta) :: dif_dat, prev_dif_dat
@@ -728,19 +746,23 @@ c***********************************************************************
 
       integer nomvarid, ndims, dimids(NF_MAX_VAR_DIMS)
 
-      character*2 nomvar_f
-
-      integer,allocatable,dimension (:) :: ibwork
-      integer,allocatable,dimension (:) minutes
+      integer,allocatable,dimension (:) :: minutes
       real,allocatable,dimension (:) :: seconds
 
+      character*256 tunits
+
       integer i, k, cmcstamp, curdate, curhour, nnincr, t
+
+      integer,external :: get_calendar
 
 c     Get ID of nomvar time
       ier = nf_inq_varid(iun, trim(nomvar), nomvarid)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Get Dimension ID of time
-      ier = nf_inq_vardimid(iun, getvarid, dimids)
+      ier = nf_inq_vardimid(iun, nomvarid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+c     Get Time Units
+      ier = nf_get_att(iun, nomvarid, "units", tunits)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Get number of time steps
       ier = nf_inq_dimlen(iun, dimids(1), ntimes)
@@ -759,7 +781,7 @@ c     Read times
             dat_b = datetime(year(i), month(i), day(i), hour(i), minutes(i))
             dif_dat = dat_b - dat_a
             if (i.ge.2) then
-               if (dif_dat%total_hours() .ne. prev_dif_dat%total_hours()) then
+               if (dif_dat%total_seconds() .ne. prev_dif_dat%total_seconds()) then
                   print*
                   print*,'Time increment is not constant in the datafile.'
                   print*,'It must be for make_tracks to work.'
@@ -771,7 +793,7 @@ c     Read times
          endif
          dat_a = datetime(year(i), month(i), day(i), hour(i), minutes(i))
       enddo
-      nincr = dif_dat%total_hours()
+      nincr = (dif_dat%total_seconds())/3600
 
       if (ntimes.le.0) then
          print*
@@ -806,8 +828,13 @@ c     Read times
 c***********************************************************************
 c---- Sous-routine GRADIENT_WIND_FACTOR                              ---
 c***********************************************************************
+#ifndef NETCDF
       SUBROUTINE GRADIENT_WIND_FACTOR(H,F_GRAD,delta_x,delta_y,gdid,
      $     ni,nj)
+#else
+      SUBROUTINE GRADIENT_WIND_FACTOR(H,F_GRAD,delta_x,delta_y,lat,lon,
+     $     ni,nj)
+#endif
       implicit none
 !     
 !     DESCRIPTION
@@ -822,10 +849,17 @@ c***********************************************************************
       REAL   H(NI*NJ)   !.rf.ra   input geopotential field
       REAL   F_GRAD(NI*NJ)   !.wf.ra   ouput gradient wind factor
       REAL    delta_x(NI*NJ), delta_y(NI*NJ)
+#ifndef NETCDF
       integer gdid
+#else
+      real lat(ni,nj), lon(ni,nj)
+#endif
 
 !     Local variables
-      integer ier, gdllfxy, nij, i, j, k, ihem, ij
+      integer ier, nij, i, j, k, ihem, ij
+#ifndef NETCDF
+      integer gdllfxy
+#endif
 
       real pi, ome, rd, slat, slon, fij, term1, term2, term3, denom
       real vg, fk, v, ro
@@ -862,7 +896,12 @@ c***********************************************************************
 
             IJ=I+(J-1)*NI
 
+#ifndef NETCDF
             ier = gdllfxy(gdid, SLAT, SLON, I*1., J*1., 1)
+#else
+            slat = lat(i,j)
+            slon = lon(i,j)
+#endif
             IF(SLAT.LE.0.0)THEN
                FIJ=2.*OME*SIN(MIN(SLAT,-20.)*K_DEGTOR)
                IHEM=-1
@@ -1274,11 +1313,15 @@ C   END DO
 c***********************************************************************
 c---- Sous-routine INTERPOLV                                         ---
 c***********************************************************************
-      subroutine interpolv(CHINT,wk1,wk2,ch,datev,iun01,nivp,nkp,niv,
+      subroutine interpolv(CHINT,wk1,wk2,ch,datev,iun01,fm,nivp,nkp,niv,
      $     nk, ni, nj   )
       implicit none
 
+#ifndef NETCDF
       character*2 ch
+#else
+      character*256 ch
+#endif
 
       integer ni, nj, n1, n2, n3, nk, nkp, lvl, lvlp
       integer niv(nk), nivp(nkp)
@@ -1286,7 +1329,7 @@ c***********************************************************************
       integer get_dimgrille, glbkeyt, k
 
       real chint(ni,nj,nkp), wk1(ni,nj), wk2(ni,nj)
-      real dis, diffp
+      real dis, diffp, fm
 
       real,  dimension (:,:,:)  , allocatable :: chst
 
@@ -1307,7 +1350,7 @@ c***********************************************************************
 
       do k = 1,nk
 !    print*
-         call read_field(chst(:,:,k), datev, iun01, ch, 1.0, niv(k), 
+         call read_field(chst(:,:,k), datev, iun01, ch, fm, niv(k), 
      $        ni, nj)
 !         ier = fstlir(chst(:,:,k), iun01, n1, n2, n3, datev, ' ', 
 !     $        niv(k), -1, -1, ' ', ch)
@@ -1457,11 +1500,14 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
+      include 'netcdf.inc'
+
       integer nk, iun
       integer niv(K_NIVMAX)
       character*256 nomvar
 
       integer varid, ndims, lev_varid
+      integer dimids(NF_MAX_VAR_DIMS)
       integer ier
 
       integer,allocatable,dimension (:) :: ibwork
@@ -1486,7 +1532,7 @@ c     Get number of vertical levels, assuming the following dimension order: (ti
       ier = nf_inq_dimlen(iun, dimids(3), nk)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Read vertical levels
-      ier = nf_get_var_int(iun, lev_varid, niv)
+      ier = nf_get_var_int(iun, dimids(3), niv)
       if (ier .ne. nf_noerr) call handle_err(ier)
 
       if (nk.gt.0) then
@@ -1537,6 +1583,8 @@ c***********************************************************************
 #else
       subroutine read_field(buffer,datev,iun,nomvar,fm,ip1,ni,nj)
       implicit none
+
+      include 'netcdf.inc'
 
       integer  iun, ip1
       character*256 nomvar
@@ -1625,6 +1673,8 @@ c***********************************************************************
       subroutine read_orog(orog, iun, nomvar, ni, nj)
       implicit none
 
+      include 'netcdf.inc'
+
       integer  iun, ip1
       character*256 nomvar
       integer ni, nj
@@ -1651,7 +1701,7 @@ c
          start(2) = 1
          count(1) = ni
          count(2) = nj
-         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         ier = nf_get_vara_real(iun, varid, start, count, orog)
          if (ier .ne. nf_noerr) then
             print*
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
@@ -1705,6 +1755,8 @@ c
       subroutine read_landsea(landsea, iun, nomvar, ni, nj)
       implicit none
 
+      include 'netcdf.inc'
+
       integer  iun, ip1
       character*256 nomvar
       integer ni, nj
@@ -1731,7 +1783,7 @@ c
          start(2) = 1
          count(1) = ni
          count(2) = nj
-         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         ier = nf_get_vara_real(iun, varid, start, count, landsea)
          if (ier .ne. nf_noerr) then
             print*
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
@@ -2153,8 +2205,11 @@ c***********************************************************************
       integer ni,nj,niext,njext
       integer ext_i,ext_j,ext
 
-      dlon = lon(2) - lon(1)
-      dlat = lat(2) - lat(1)
+      integer lat(ni,nj), lon(ni,nj)
+      real dlat, dlon
+
+      dlon = float(lon(2,1) - lon(1,1))
+      dlat = float(lat(2,1) - lat(1,1))
 
 c     On definit les parametres de la grille etendue
       ext_i=nint(5.0/dlon)
@@ -2170,7 +2225,7 @@ c     On definit les parametres de la grille etendue
 c***********************************************************************
 c---- Sous-routine EXTEND_GLB_GRID                                   ---
 c***********************************************************************
-      subroutine extend_glb_grid(niext, lon, ni)
+      subroutine extend_glb_grid(niext, lon, ni, nj)
       implicit none
 
 !     ----------------------------------------------------------
@@ -2180,12 +2235,14 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
-      integer ni, niext
+      integer ni, nj, niext
       integer ext_i
+
+      integer lon(ni,nj)
 
       real dlon
 
-      dlon = lon(2) - lon(1)
+      dlon = float(lon(2,1) - lon(1,1))
 
       ext_i=nint(5.0/dlon)
       print*
@@ -2733,6 +2790,7 @@ c     On obtient la dimension de la grille
       end
 #endif
 
+#ifndef NETCDF
 c***********************************************************************
 c---  Fonction FSTPRM_DIO                                            ---
 c***********************************************************************
@@ -2768,6 +2826,7 @@ c     ----------------------------------------------------------
 
       return
       end
+#endif
 
 c***********************************************************************
 c---  Sous-routine CALC_DXDY_GR                                      ---
@@ -2973,7 +3032,7 @@ c     ni     dimension des vecteurs
 c***********************************************************************
 c---- Sous-routine HANDLE_ERROR                                     ----
 c***********************************************************************
-      subroutine handle_error(error_code)
+      subroutine handle_err(error_code)
       implicit none
       include 'netcdf.inc'
 
@@ -2988,6 +3047,6 @@ c***********************************************************************
       print *, 'Error: ', nf_strerror(error_code)
       stop 2
 
-      end subroutine handle_error
+      end subroutine handle_err
 #endif
       
