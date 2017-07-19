@@ -510,69 +510,6 @@ c
 ************************************************************************
 c
 c***********************************************************************
-c---- Fonction GET_DIMGRILLE                                         ---
-c***********************************************************************
-      integer function get_dimgrille(ni, nj, iun, getvar)
-      implicit none
-
-!     ----------------------------------------------------------
-!     Ecrite par Christian Page                                -
-!     Juillet 2017                                             -
-!     GLOBC                                                    -
-!     CERFACS                                                  -
-!     ---------------------------------------------------------- 
-
-      include 'netcdf.inc'
-      
-      integer ier
-      integer ndims
-      integer varid, iun
-      character*256 getvar
-      integer ni, nj
-      integer dimids(NF_MAX_VAR_DIMS)
-      character*(NF_MAX_NAME) latname, lonname
-      
-c
-c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
-c     
-      ier = nf_inq_varid(iun, getvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      if (ndims .ne. 3) then
-         print*
-         print*,'get_dimgrille_nc: Critical Problem: coordinate number of dimensions is not 3: ', ndims
-         print*
-         get_dimgrille = -1
-         return
-      endif
-
-      ier = nf_inq_vardimid(iun, varid, dimids)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      ier = nf_inq_dimname(iun, dimids(2), latname)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-      ier = nf_inq_dimlen(iun, dimids(2), nj)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      ier = nf_inq_dimname(iun, dimids(1), lonname)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-      ier = nf_inq_dimlen(iun, dimids(1), ni)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      print*
-      print*,'Dimension ',lonname,' ni=',ni,' and ',latname,' nj=',nj
-      print*
-
-      get_dimgrille = varid
-      
-      return
-      end
-
-c
-c***********************************************************************
 c---- Fonction GDLL                                                  ---
 c***********************************************************************
       integer function gdll(lat, lon, iun, varid, ni, nj)
@@ -660,21 +597,21 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
-      integer ier
       integer ni, nj
       real x, y
       real slat, slon
       real lat(ni,nj), lon(ni, nj)
+      real dlat, dlon, latsw, lonsw
 
       integer i, j
 
-      dlon = lon[2,1] - lon[1,1]
-      lonsw = lon[1,1]
-      dlat = lat[1,2] - lat[1,1]
-      latsw = lat[1,1]
+      dlon = lon(2,1) - lon(1,1)
+      lonsw = lon(1,1)
+      dlat = lat(1,2) - lat(1,1)
+      latsw = lat(1,1)
 
       slon = (x-1.0)*dlon+lonsw
-      slon = dmod((double) (slon + 360.0), (double) 360.0)
+      slon = mod((slon + 360.0), 360.0)
       slat = (y-1.0)*dlat+latsw
 
       gdllfxy = 0
@@ -683,9 +620,9 @@ c***********************************************************************
       end
 
 c***********************************************************************
-c---- Fonction GDLLFXY                                               ---
+c---- Fonction GDXYFLL                                               ---
 c***********************************************************************
-      integer function gdxyfll(slat, slon, x, y, lat, lon, ni, nj)
+      integer function gdxyfll(x, y, slat, slon, lat, lon, ni, nj)
       implicit none
 
 !     ----------------------------------------------------------
@@ -695,25 +632,121 @@ c***********************************************************************
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
-      integer ier
       integer ni, nj
       real x, y
       real slat, slon
       real lat(ni,nj), lon(ni, nj)
 
-      integer i, j
+      real dlat, dlon, latsw, lonsw
 
-      dlon = lon[2,1] - lon[1,1]
-      lonsw = lon[1,1]
-      dlat = lat[1,2] - lat[1,1]
-      latsw = lat[1,1]
+      if (slon.lt.lon(1,1)) then
+         slon = slon + 360.0
+      endif
+      if (slon.gt.lon(ni,1)) then
+         slon = slon - 360.0
+      endif
 
-      slon = (x-1.0)*dlon+lonsw
-      slon = dmod((double) (slon + 360.0), (double) 360.0)
-      slat = (y-1.0)*dlat+latsw
+      dlon = lon(2,1) - lon(1,1)
+      lonsw = lon(1,1)
+      dlat = lat(1,2) - lat(1,1)
+      latsw = lat(1,1)
 
-      gdllfxy = 0
+      x = (dlon - lonsw)/dlon + 1.0
+      y = (dlat - latsw)/dlat + 1.0
+
+      gdxyfll = 0
       
       return
       end
+
+c***********************************************************************
+c---- Fonction GDLLSVAL                                              ---
+c***********************************************************************
+      integer function gdllsval(zout, zin, xlat, xlon, lat, lon,
+     $     ni, nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ni, nj
+      real xlat, xlon
+      real zout
+      real zin(ni,nj)
+      real lat(ni,nj), lon(ni, nj)
+
+      real x, y
+      integer ier
+      integer gdxyfll, gdxysval
+
+      ier = gdxyfll(x, y, xlat, xlon, lat, lon, ni, nj)
+
+      ier = gdxysval(zout, zin, x, y, ni, nj)
       
+      gdllsval = 0
+      
+      return
+      end
+
+c***********************************************************************
+c---- Fonction GDXYSVAL                                              ---
+c***********************************************************************
+      integer function gdxysval(zout, zin, x, y, ni, nj)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer ni, nj
+      real x, y
+      real zout
+      real zin(ni,nj)
+
+      integer ier
+      real zlin
+      real*8 dx, dy, y2, y3
+      integer i, j
+
+      i = min(ni-1,max(1,ifix(x)))
+      j = min(nj-1,max(1,ifix(y)))
+      
+      dx = x - float(i)
+      dy = y - float(j)
+      
+      y2 = zlin(dble(zin(i,j  )),dble(zin(i+1,j  )),dx)
+      y3 = zlin(dble(zin(i,j+1)),dble(zin(i+1,j+1)),dx)
+      
+      zout = zlin(y2,y3,dy)
+
+      gdxysval = 0
+      
+      return
+      end
+
+c***********************************************************************
+c---- Fonction ZLIN                                                  ---
+c***********************************************************************
+      real function zlin(zz1, zz2, zdx)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      real*8 zz1, zz2, zdx
+
+      zlin = zz1 + (zz2 - zz1) * zdx
+      
+      return
+      end

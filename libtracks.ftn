@@ -118,7 +118,11 @@ c***********************************************************************
 c***********************************************************************
 c---- Sous-routine FIND_CENTRE
 c***********************************************************************
+#ifndef NETCDF
       subroutine find_centre(XPF,YPF,x,y,field,isign,type,gdid,ni,nj)
+#else
+      subroutine find_centre(XPF,YPF,x,y,field,isign,type,lat,lon,ni,nj)
+#endif
       implicit none
 
 !     Uses cubic splines to more accurately locate centers between
@@ -127,7 +131,12 @@ c***********************************************************************
       real    XPF, YPF
       real    field(ni,nj)
       character*3 type
-      integer x, y, gdid, ni, nj, isign
+      integer x, y, ni, nj, isign
+#ifndef NETCDF
+      integer gdid
+#else
+      real lat(ni,nj), lon(ni,nj)
+#endif
 
       real    xp, yp, xpp, ypp, vmax, ftest, pds_field, fmax, denom
       integer ier, gdxysval, fact
@@ -154,7 +163,11 @@ c***********************************************************************
             DO JJ=2,4
                XP=XPP+FLOAT(II-3)/DENOM
                YP=YPP+FLOAT(JJ-3)/DENOM
+#ifndef NETCDF
                ier = gdxysval(gdid, PDS_FIELD, field, xp, yp, 1)
+#else
+               ier = gdxysval(PDS_FIELD, field, xp, yp, lat, lon, ni, nj)
+#endif
                FTEST=PDS_FIELD*isign*fact
                IF(FTEST.GT.FMAX) THEN
                   FMAX=FTEST
@@ -172,17 +185,27 @@ c***********************************************************************
 c***********************************************************************
 c---- Sous-routine CALC_CIRC
 c***********************************************************************
+#ifndef NETCDF
       subroutine calc_circ(TCIRC,tlat,tlon,tvort,vort,ic,ihem,
      $     gdid,ni,nj,nc)
+#else
+      subroutine calc_circ(TCIRC,tlat,tlon,tvort,vort,ic,ihem,
+     $     lat,lon,ni,nj,nc)
+#endif
       implicit none
 
 c     For each center found, work out its circulation
 c     First, we need to define the boundary of the area 
 c     to do the circulation calculation
 
-      integer ni,nj,ihem,gdid,nc
+      integer ni,nj,ihem,nc
       real    TCIRC,tlat(nc),tlon(nc),tvort
       real    vort(ni,nj)
+#ifndef NETCDF
+      integer gdid
+#else
+      real lat(ni,nj), lon(ni,nj)
+#endif
 
       LOGICAL INS
 
@@ -268,7 +291,11 @@ c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
             DAREA=DAREA_2-DAREA_1
             CALL GCPMOV(TLAT(IC),TLON(IC),SSLAT,SSLON,THETA,
      $           RADIUS*1.111E5)
+#ifndef NETCDF
             ier= gdxyfll(gdid, XP, YP, sslat, sslon, 1)
+#else
+            ier= gdxyfll(XP, YP, sslat, sslon, lat, lon, ni, nj)
+#endif
                   
 C     See if <20° lat
             ni_f=1.0*nj
@@ -276,7 +303,11 @@ C     See if <20° lat
             IF( (ABS(SSLAT).GT.21.) .and. (yp.ge.1.) .and.
      $           (xp.ge.1.) .and. (yp.le.nj_f) .and.
      $           (xp.le.ni_f) ) then
+#ifndef NETCDF
                ier = gdxysval(gdid, PDS_VORT, vort, xp, yp, 1)
+#else
+               ier = gdxysval(PDS_VORT, vort, xp, yp, lat, lon, ni, nj)
+#endif
                TAREA_20=TAREA_20+DAREA
             ELSE
                RAD_TEST=RADIUS                
@@ -306,9 +337,15 @@ C     See if inside another cyclone's domain
                   ICC_T=ICL(NCL)
                   INS=.FALSE.
                   DO ITT=1,NTHETA
+#ifndef NETCDF
                      ier= gdxyfll(gdid, XDRAW(ITT), 
      $                    YDRAW(ITT), BLAT(ITT,ICC_T), 
      $                    BLON(ITT,ICC_T), 1)
+#else
+                     ier= gdxyfll(XDRAW(ITT), 
+     $                    YDRAW(ITT), BLAT(ITT,ICC_T), 
+     $                    BLON(ITT,ICC_T), lat, lon, ni, nj)
+#endif
                   END DO
                   CALL INSIDE(XDRAW,YDRAW,NTHETA,XP,YP,INS,XC,YC)
                   IF(INS)RAD_TEST=RADIUS-DRAD

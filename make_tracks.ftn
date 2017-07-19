@@ -366,13 +366,13 @@
 #ifndef NETCDF
       integer gdid              ! Descripteur de grille pour EZSCINT
       integer gdidext           ! Descripteur de la grille etendue pour EZSCINT
+      integer ezqkdef           ! Fonction EZSCINT
+#endif
       integer gdll              ! Fonction EZSCINT
       integer gdxysval          ! Fonction EZSCINT
       integer gdllsval          ! Fonction EZSCINT
-      integer ezqkdef           ! Fonction EZSCINT
       integer gdxyfll           ! Fonction EZSCINT
       integer gdllfxy           ! Fonction EZSCINT
-#endif
       integer i                 ! Compteur pour les points de grille en x
       integer j                 ! Compteur pour les points de grille en y
       integer ni                ! Dimension de la grille en x
@@ -1086,10 +1086,17 @@ c     On evalue la distance entre les points de grille
 
                if (found) then
                   ip_f = ip_f + 1
+#ifndef NETCDF
                   call find_centre(P_XF_F(IP_F), P_YF_F(IP_F), i, j, 
      $                 press, isign, 'min', gdid, ni, nj)
                   ier = gdllfxy(gdid, P_LAT_F(IP_F), P_LON_F(IP_F), 
      $                 p_xf_f(ip_f), p_yf_f(ip_f), 1)
+#else
+                  call find_centre(P_XF_F(IP_F), P_YF_F(IP_F), i, j, 
+     $                 press, isign, 'min', lat, lon, ni, nj)
+                  ier = gdllfxy(P_LAT_F(IP_F), P_LON_F(IP_F), 
+     $                 p_xf_f(ip_f), p_yf_f(ip_f), lat, lon, ni, nj)
+#endif
                endif
 
                if ( relocp .eq. 0 ) then
@@ -1099,10 +1106,17 @@ c     On evalue la distance entre les points de grille
 
                   if (found) then
                      ip = ip + 1
+#ifndef NETCDF
                      call find_centre(XPF, YPF, i, j, pressnf,
      $                    isign, 'min', gdid, ni, nj)
                      ier = gdllfxy(gdid, P_LAT(IP), P_LON(IP), xpf,
      $                    ypf, 1)
+#else
+                     call find_centre(XPF, YPF, i, j, pressnf,
+     $                    isign, 'min', lat, lon, ni, nj)
+                     ier = gdllfxy(P_LAT(IP), P_LON(IP), xpf, ypf,
+     $                    lat, lon, ni, nj)
+#endif
                   endif
                endif
 
@@ -1120,10 +1134,17 @@ c     On evalue la distance entre les points de grille
 
                   if (found) then
                      iv = iv + 1
+#ifndef NETCDF
                      call find_centre(V_XF(IV), V_YF(IV), i, j, vort, 
      $                    isign, 'max', gdid, ni, nj)
                      ier = gdllfxy(gdid, V_LAT(IV), V_LON(IV), v_xf(iv), 
      $                    v_yf(iv), 1)
+#else
+                     call find_centre(V_XF(IV), V_YF(IV), i, j, vort, 
+     $                    isign, 'max', lat, lon, ni, nj)
+                     ier = gdllfxy(V_LAT(IV), V_LON(IV), v_xf(iv), v_yf(iv),
+     $                    lat, lon, ni, nj)
+#endif
                   endif
                endif
 
@@ -1138,10 +1159,17 @@ c     On evalue la distance entre les points de grille
 
                   if (found) then
                      iz = iz + 1
+#ifndef NETCDF
                      call find_centre(XPF, YPF, i, j, h,
      $                    1, 'max', gdid, ni, nj)
                      ier = gdllfxy(gdid, Z_LAT(IZ), Z_LON(IZ), xpf,
      $                    ypf, 1)
+#else
+                     call find_centre(XPF, YPF, i, j, h,
+     $                    1, 'max', lat, lon, ni, nj)
+                     ier = gdllfxy(Z_LAT(IZ), Z_LON(IZ), xpf, ypf,
+     $                    lat, lon, ni, nj)
+#endif
                   endif
 
                endif
@@ -1192,8 +1220,13 @@ c     On evalue la distance entre les points de grille
                   call closest_centre(DIST, F_LAT, F_LON, c_lat_f(ic),
      $                 c_lon_f(ic), p_lat, p_lon, ip, nc)
                   if (dist/1000.0 .le. 250.0) then ! si dist <= 250 km
-                     ier = gdxyfll(gdid, C_XF(IC), C_YF(IC), f_lat, 
+#ifndef NETCDF
+                     ier = gdxyfll(gdid, C_XF(IC), C_YF(IC), f_lat, f_lon,
+     $                    lat, lon, ni, nj)
+#else
+                     ier = gdxyfll(C_XF(IC), C_YF(IC), f_lat, 
      $                    f_lon, 1)
+#endif
                      C_LAT(IC) = f_lat
                      C_LON(IC) = f_lon
                   endif
@@ -1201,22 +1234,43 @@ c     On evalue la distance entre les points de grille
             endif
 
 !     On determine la valeur de la pression (non filtree)
+#ifndef NETCDF
             ier= gdxysval(gdid, C_PRESS(IC), pressnf, c_xf(ic), 
      $           c_yf(ic), 1)
+#else
+            ier= gdxysval(C_PRESS(IC), pressnf, c_xf(ic), c_yf(ic),
+     $           lat, lon, ni, nj)
+#endif
 
 !     On determine la valeur du tourbillon
+#ifndef NETCDF
             ier = gdxysval(gdid, vort_t, vort, c_xf(ic), c_yf(ic), 1)
+#else
+            ier = gdxysval(vort_t, vort, c_xf(ic), c_yf(ic), lat, lon, ni, nj)
+#endif
             c_vort(ic) = ihem * vort_t
 
 !     On determine les valeurs pour l'estimation de la
 !     vitesse de deplacement
+#ifndef NETCDF
             ier = gdxysval(gdid, C_U(IC), U, c_xf(ic), c_yf(ic), 1)
             ier = gdxysval(gdid, C_V(IC), V, c_xf(ic), c_yf(ic), 1)
-
+#else
+            ier = gdxysval(C_U(IC), U, c_xf(ic), c_yf(ic),
+     $           lat, lon, ni, nj)
+            ier = gdxysval(C_V(IC), V, c_xf(ic), c_yf(ic),
+     $           lat, lon, ni, nj)
+#endif
+            
 !     On determine la valeur du masque Terre-Mer
             if (tropic .ge. 0) then
+#ifndef NETCDF
                ier = gdxysval(gdid, C_LANDSEA(IC), landsea, 
      $              c_xf(ic), c_yf(ic), 1)
+#else
+               ier = gdxysval(C_LANDSEA(IC), landsea, c_xf(ic), c_yf(ic),
+     $              lat, lon, ni, nj)
+#endif
             endif
 
          end do
@@ -1256,8 +1310,13 @@ c     On evalue la distance entre les points de grille
                call closest_centre(DIST, F_LAT, F_LON, c_lat(ic), 
      $              c_lon(ic), v_lat, v_lon, iv, nc)
                if (dist/1000.0 .le. tcrad) then
+#ifndef NETCDF
                   ier = gdllsval(gdid, C_MAXQR(IC), vort, 
      $                 f_lat, f_lon, 1)
+#else
+                  ier = gdllsval(C_MAXQR(IC), vort, 
+     $                 f_lat, f_lon, lat, lon, ni, nj)
+#endif
                else
                   C_MAXQR(ic)=0.0
                endif
@@ -1266,8 +1325,13 @@ c     On evalue la distance entre les points de grille
                call closest_centre(DIST, F_LAT, F_LON, c_lat(ic), 
      $              c_lon(ic), z_lat, z_lon, iz, nc)
                if (dist/1000.0 .le. tcrad) then
+#ifndef NETCDF
                   ier = gdllsval(gdid, C_MAXDZ(IC), h,
      $                 f_lat, f_lon, 1)
+#else
+                  ier = gdllsval(C_MAXDZ(IC), h,
+     $                 f_lat, f_lon, lat, lon, ni, nj)
+#endif
                else
                   C_MAXDZ(ic)=0.0
                endif
@@ -1302,8 +1366,13 @@ c     On evalue la distance entre les points de grille
          elseif ( vortcnt .eq. 0 .and. do_circ ) then
             
             do ic=1,n_new
+#ifndef NETCDF
                call calc_circ(C_CIRC(ic), c_lat, c_lon, c_vort(ic), 
      $              vort, ic, ihem, gdid, ni, nj, nc)
+#else
+               call calc_circ(C_CIRC(ic), c_lat, c_lon, c_vort(ic), 
+     $              vort, ic, ihem, lat, lon, ni, nj, nc)
+#endif
             end do
 
          else
@@ -1744,8 +1813,10 @@ c######################################################################
          print*,' -fpres    : Cressman smoothing radius (km) for press '
          print*
          print*,' -anal     : Analyses en entree'
+#ifndef NETCDF
          print*
          print*,' -nofst    : pas de sorties en fichier std '
+#endif
          print*
          print*,' -vortcnt  : suivi en tourbillon '
          print*

@@ -2751,41 +2751,66 @@ c     On obtient la dimension de la grille
       return
       end
 #else
+c
 c***********************************************************************
-c--- Fonction GET_DIMGRILLE                                          ---
+c---- Fonction GET_DIMGRILLE                                         ---
 c***********************************************************************
-      integer function get_dimgrille(NI, NJ, iun, getvar)
+      integer function get_dimgrille(ni, nj, iun, getvar)
       implicit none
 
-c     ----------------------------------------------------------
-c     Ecrite par Christian Page                                -
-c     Avril 2017                                               -
-c     CERFACS                                                  -
-c     ----------------------------------------------------------
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Juillet 2017                                             -
+!     GLOBC                                                    -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
 
       include 'netcdf.inc'
       
-      integer ni, nj
-      integer iun, ier
-      integer getvarid, ndims, dimid(NF_MAX_VAR_DIMS)
+      integer ier
+      integer ndims
+      integer varid, iun
       character*256 getvar
+      integer ni, nj
+      integer dimids(NF_MAX_VAR_DIMS)
+      character*(NF_MAX_NAME) latname, lonname
+      
+c
+c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
+c     
+      ier = nf_inq_varid(iun, getvar, varid)
+      if (ier .ne. nf_noerr) call handle_err(ier)
 
-*     
-c     On obtient la dimension de la grille
-*     
-      ier = nf_inq_varid(iun, trim(getvar), getvarid)
-      ier = nf_inq_varndims(iun, getvarid, ndims)
-      get_dimgrille = nf_inq_vardimid(iun, getvarid, dimid)
+      ier = nf_inq_varndims(iun, varid, ndims)
+      if (ier .ne. nf_noerr) call handle_err(ier)
 
-      if (get_dimgrille.lt.0) then
+      if (ndims .ne. 3) then
          print*
-         print*,'Le champ ',trim(getvar),' n''est pas disponible.'
-         print*,'Impossible de continuer.'
+         print*,'get_dimgrille_nc: Critical Problem: coordinate number of dimensions is not 3: ', ndims
          print*
-         ier = nf_close(iun)
-         stop
+         get_dimgrille = -1
+         return
       endif
 
+      ier = nf_inq_vardimid(iun, varid, dimids)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_dimname(iun, dimids(2), latname)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      ier = nf_inq_dimlen(iun, dimids(2), nj)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      ier = nf_inq_dimname(iun, dimids(1), lonname)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+      ier = nf_inq_dimlen(iun, dimids(1), ni)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      print*
+      print*,'Dimension ',lonname,' ni=',ni,' and ',latname,' nj=',nj
+      print*
+
+      get_dimgrille = varid
+      
       return
       end
 #endif
