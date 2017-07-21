@@ -11,8 +11,8 @@ FORTRAN=gfortran
 CC=gcc
 
 NETCDF=netcdff
-OPTFLAGS=-O2 -cpp -ffixed-line-length-132 -DNETCDF
-CFLAGS=-O2
+OPTFLAGS=-O2 -g -fbounds-check -cpp -ffixed-line-length-132 -DNETCDF
+CFLAGS=-O2 -g
 
 .SUFFIXES: .ftn
 

@@ -552,11 +552,11 @@ c***********************************************************************
 c
 c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
 c     
-      ier = nf_inq_varndims(iun, varid, dimids)
+      ier = nf_inq_vardimid(iun, varid, dimids)
       if (ier .ne. nf_noerr) call handle_err(ier)
 
       allocate ( lat1d(nj) )
-      ier = nf_get_var(iun, dimids(2), lat1d)
+      ier = nf_get_var_real(iun, dimids(2), lat1d)
       if (ier .ne. nf_noerr) call handle_err(ier)
       print*, 'gdll: READ latitude successful'
 
@@ -565,10 +565,9 @@ c
             lat(i,j) = lat1d(j)
          enddo
       enddo
-      deallocate(lat1d)
       
       allocate ( lon1d(ni) )
-      ier = nf_get_var(iun, dimids(1), lon1d)
+      ier = nf_get_var_real(iun, dimids(1), lon1d)
       if (ier .ne. nf_noerr) call handle_err(ier)
       print*, 'gdll: READ longitude successful'
 
@@ -577,6 +576,8 @@ c
             lon(i,j) = lon1d(i)
          enddo
       enddo
+
+      deallocate(lat1d)
       deallocate(lon1d)
 
       gdll = 0

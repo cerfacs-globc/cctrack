@@ -724,7 +724,7 @@ c***********************************************************************
 
 #else
 
-      subroutine get_times(year, month, day, hour, nstamp,
+      subroutine get_times(yyyy, mm, dd, hh, nstamp,
      $     ntimes, nincr, iun, nomvar, ntw)
       USE datetime_module
 
@@ -733,21 +733,22 @@ c***********************************************************************
       include 'netcdf.inc'
 
       TYPE(datetime)  :: dat_a, dat_b
-      TYPE(timedelta) :: dif_dat, prev_dif_dat
+      TYPE(timedelta) :: dif_dat
+
+      real*8 prev_dif_dat_sec
       
       integer ntw, iun, naj
-      integer year(ntw), month(ntw), day(ntw), hour(ntw)
-      character*256 nomvar
+      integer yyyy(ntw), mm(ntw), dd(ntw), hh(ntw), mins(ntw)
+      real*8 secs(ntw)
+      character*(*) nomvar
       integer ntimes, nincr
 
       integer ier
       integer liste(ntw),infon,vip2(ntw)
       real*8 nstamp(ntw)
+      integer real_len
 
       integer nomvarid, ndims, dimids(NF_MAX_VAR_DIMS)
-
-      integer,allocatable,dimension (:) :: minutes
-      real,allocatable,dimension (:) :: seconds
 
       character*256 tunits
 
@@ -762,36 +763,37 @@ c     Get Dimension ID of time
       ier = nf_inq_vardimid(iun, nomvarid, dimids)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Get Time Units
-      ier = nf_get_att(iun, nomvarid, "units", tunits)
+      ier = nf_get_att_text(iun, nomvarid, "units", tunits)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Get number of time steps
       ier = nf_inq_dimlen(iun, dimids(1), ntimes)
       if (ier .ne. nf_noerr) call handle_err(ier)
 c     Read times
-      ier = nf_get_var_double(iun, nomvarid, nstamp)
+      ier = nf_get_vara_double(iun, nomvarid, 1, ntimes, nstamp)
       if (ier .ne. nf_noerr) call handle_err(ier)
       print*, 'get_times: READ ',nomvar,' successful'
       
-      allocate(minutes(ntw))
-      allocate(seconds(ntw))
+      tunits = tunits(1:real_len(tunits))//char(0)
+
+      ier = get_calendar(yyyy, mm, dd, hh, mins, secs, tunits, nstamp, ntimes)
 
       do i=1,ntimes
-         ier = get_calendar(year(i), month(i), day(i), hour(i), minutes(i), seconds(i), tunits, nstamp(i), ntimes)
-         if (i.ge.1) then
-            dat_b = datetime(year(i), month(i), day(i), hour(i), minutes(i))
+         if (i.ge.2) then
+            dat_b = datetime(yyyy(i), mm(i), dd(i), hh(i), mins(i))
             dif_dat = dat_b - dat_a
-            if (i.ge.2) then
-               if (dif_dat%total_seconds() .ne. prev_dif_dat%total_seconds()) then
+            if (i.ge.3) then
+               if (dif_dat%total_seconds() .ne. prev_dif_dat_sec) then
                   print*
-                  print*,'Time increment is not constant in the datafile.'
+                  print*,'Time increment is not constant in the datafile: ',
+     $                 dif_dat%total_seconds(),' vs ',prev_dif_dat_sec
                   print*,'It must be for make_tracks to work.'
                   print*,'Aborting...'
                   stop
                endif
             endif
-            prev_dif_dat = dif_dat
+            prev_dif_dat_sec = dif_dat%total_seconds()
          endif
-         dat_a = datetime(year(i), month(i), day(i), hour(i), minutes(i))
+         dat_a = datetime(yyyy(i), mm(i), dd(i), hh(i), mins(i))
       enddo
       nincr = (dif_dat%total_seconds())/3600
 
@@ -818,9 +820,6 @@ c     Read times
          print*,'GET_TIMES: NTIMES greater then NTW !!! Stop'
          stop
       end if
-
-      deallocate(minutes)
-      deallocate(seconds)
 
       return
       end
@@ -1587,7 +1586,7 @@ c***********************************************************************
       include 'netcdf.inc'
 
       integer  iun, ip1
-      character*256 nomvar
+      character*(*) nomvar
       integer datev, ni, nj
       real buffer(ni,nj), fm
 
@@ -1676,7 +1675,7 @@ c***********************************************************************
       include 'netcdf.inc'
 
       integer  iun, ip1
-      character*256 nomvar
+      character*(*) nomvar
       integer ni, nj
       real orog(ni,nj)
 
@@ -1688,38 +1687,46 @@ c
 c     Expected dimensions order with ncdump for 2D matrix: float orog(lat, lon) !!is reversed!! in fortran
 c
       ier = nf_inq_varid(iun, nomvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      ier = nf_inq_vartype(iun, varid, vartype)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
-         start(1) = 1
-         start(2) = 1
-         count(1) = ni
-         count(2) = nj
-         ier = nf_get_vara_real(iun, varid, start, count, orog)
-         if (ier .ne. nf_noerr) then
-            print*
-            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-            print*,' Cannot read orography! Set field = 0 '
-            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-            print*
-            orog(:,:)=0.0
-         else
-            call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
-         endif
-      else
+      if (ier .ne. nf_noerr) then
          print*
-         print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
          print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
          print*,' Cannot read orography! Set field = 0 '
          print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
          print*
          orog(:,:)=0.0
+      else
+         
+         ier = nf_inq_vartype(iun, varid, vartype)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         
+         ier = nf_inq_varndims(iun, varid, ndims)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         
+         if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
+            start(1) = 1
+            start(2) = 1
+            count(1) = ni
+            count(2) = nj
+            ier = nf_get_vara_real(iun, varid, start, count, orog)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read orography! Set field = 0 '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               orog(:,:)=0.0
+            else
+               call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
+            endif
+         else
+            print*
+            print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*,' Cannot read orography! Set field = 0 '
+            print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+            print*
+            orog(:,:)=0.0
+         endif
       endif
       
       return
@@ -1758,7 +1765,7 @@ c
       include 'netcdf.inc'
 
       integer  iun, ip1
-      character*256 nomvar
+      character*(*) nomvar
       integer ni, nj
       real landsea(ni,nj)
 
@@ -1770,36 +1777,45 @@ c
 c     Expected dimensions order with ncdump for 2D matrix: float landsea(lat, lon) !!is reversed!! in fortran
 c
       ier = nf_inq_varid(iun, nomvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         print*
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
+         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+         print*
+         landsea(:,:)=0.0
 
-      ier = nf_inq_vartype(iun, varid, vartype)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      else
 
-      ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
-
-      if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
-         start(1) = 1
-         start(2) = 1
-         count(1) = ni
-         count(2) = nj
-         ier = nf_get_vara_real(iun, varid, start, count, landsea)
-         if (ier .ne. nf_noerr) then
+         ier = nf_inq_vartype(iun, varid, vartype)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         
+         ier = nf_inq_varndims(iun, varid, ndims)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         
+         if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
+            start(1) = 1
+            start(2) = 1
+            count(1) = ni
+            count(2) = nj
+            ier = nf_get_vara_real(iun, varid, start, count, landsea)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               landsea(:,:)=0.0
+            endif
+         else
             print*
+            print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
             print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
             print*
             landsea(:,:)=0.0
          endif
-      else
-         print*
-         print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
-         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-         print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
-         print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-         print*
-         landsea(:,:)=0.0
       endif
       
       return
@@ -2205,11 +2221,11 @@ c***********************************************************************
       integer ni,nj,niext,njext
       integer ext_i,ext_j,ext
 
-      integer lat(ni,nj), lon(ni,nj)
+      real lat(ni,nj), lon(ni,nj)
       real dlat, dlon
 
-      dlon = float(lon(2,1) - lon(1,1))
-      dlat = float(lat(2,1) - lat(1,1))
+      dlon = lon(2,1) - lon(1,1)
+      dlat = lat(2,1) - lat(1,1)
 
 c     On definit les parametres de la grille etendue
       ext_i=nint(5.0/dlon)
@@ -2238,11 +2254,11 @@ c***********************************************************************
       integer ni, nj, niext
       integer ext_i
 
-      integer lon(ni,nj)
+      real lon(ni,nj)
 
       real dlon
-
-      dlon = float(lon(2,1) - lon(1,1))
+      
+      dlon = lon(2,1) - lon(1,1)
 
       ext_i=nint(5.0/dlon)
       print*
@@ -2771,10 +2787,11 @@ c***********************************************************************
       integer ndims
       integer varid, iun
       character*256 getvar
+      integer real_len
       integer ni, nj
       integer dimids(NF_MAX_VAR_DIMS)
       character*(NF_MAX_NAME) latname, lonname
-      
+
 c
 c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
 c     
@@ -2806,7 +2823,8 @@ c
       if (ier .ne. nf_noerr) call handle_err(ier)
 
       print*
-      print*,'Dimension ',lonname,' ni=',ni,' and ',latname,' nj=',nj
+      print*,'Dimension ',lonname(1:real_len(lonname)),' ni=',ni,' and ',
+     $     latname(1:real_len(latname)),' nj=',nj
       print*
 
       get_dimgrille = varid
@@ -3070,7 +3088,8 @@ c***********************************************************************
       integer error_code
 
       print *, 'Error: ', nf_strerror(error_code)
-      stop 2
+!     stop 2
+      call abort
 
       end subroutine handle_err
 #endif

@@ -90,7 +90,7 @@
 #include "tracks_cte.h"
 !     
       integer maxtim, maxtrk, maxctr
-      parameter(maxtim=4000)    ! Nombre de pas de temps max.
+      parameter(maxtim=40000)    ! Nombre de pas de temps max.
       parameter(maxtrk=500)     ! Nombre de trajectoires actives max.
       parameter(maxctr=150)     ! Nombre de centres max. par trajectoire
 
@@ -350,12 +350,12 @@
       real    ypf               ! Point de grille interpole en y
 
 #ifndef NETCDF
-      character*2 getvar        ! Variable pour l'obtenteion des parametres de grille
+      character*2 getvar        ! Variable pour l'obtention des parametres de grille
+      character*1 typvar        ! Type des variable RPN
+      character*1 grtyp         ! Type de grille
 #else
       character*256 getvar      ! Variable pour l'obtention des parametres de grille
 #endif
-      character*1 typvar        ! Type des variable RPN
-      character*1 grtyp         ! Type de grille
 
       integer global            ! 0 = grille LAM, 1 = grille globale ou ni /= i
 !     2 = grille globale ou ni=i (repetition)
@@ -561,7 +561,7 @@ c     On evalue la distance entre les points de grille
          ig4ext = ig4
       endif
 #else
-      call extend_glb_grid(NIEXT, glbkey, ni, nj)
+      call extend_glb_grid(NIEXT, lon, ni, nj)
       njext  = nj
       ig1ext = ig1
       ig2ext = ig2
@@ -830,31 +830,31 @@ c     On evalue la distance entre les points de grille
      $           ni,nj)
          endif
 #else
-         call read_field(PRESS,tstamp(n),iun01,'psl',0.01,0,ni,nj) ! Pa converted to hPa
+         call read_field(PRESS,n,iun01,'psl',0.01,0,ni,nj) ! Pa converted to hPa
 
          if (tropic .lt. 0 .and. phase .lt. 0) then
-            call read_field(H,tstamp(n),iun01,'zg',0.1,level, ! m converted to dam
+            call read_field(H,n,iun01,'zg',0.1,level, ! m converted to dam
      $           ni,nj)
          else
-            call read_field(work1,tstamp(n),iun01,'zg',0.1,250, ! m converted to dam
+            call read_field(work1,n,iun01,'zg',0.1,250, ! m converted to dam
      $           ni,nj)
-            call read_field(work2,tstamp(n),iun01,'zg',0.1,850, ! m converted to dam
+            call read_field(work2,n,iun01,'zg',0.1,850, ! m converted to dam
      $           ni,nj)
             H(:,:)  = work1(:,:) - work2(:,:) ! 250-850 hPa (dam)
 
-            call interpolv(h3d, work1, work2, 'zg', tstamp(n), iun01, 
+            call interpolv(h3d, work1, work2, 'zg', n, iun01, 
      $           nivh, nkh, nivhm, nkhm, ni, nj) ! ! m converted to dam
             HL(:,:) = h3d(:,:,7) - h3d(:,:,nkh) ! 600-900 hPa (dam)
 
-            call read_field(work1,tstamp(n),iun01,'uas',1.0/K_UVCT,slevel, ! m/s converted to knots
+            call read_field(work1,n,iun01,'uas',1.0/K_UVCT,slevel, ! m/s converted to knots
      $           ni,nj)
-            call read_field(work2,tstamp(n),iun01,'vas',1.0/K_UVCT,slevel, ! m/s converted to knots
+            call read_field(work2,n,iun01,'vas',1.0/K_UVCT,slevel, ! m/s converted to knots
      $           ni,nj)
             WINDSPD(:,:) = sqrt( work1(:,:)**2 + work2(:,:)**2 ) 
 
-            call read_field(work1,tstamp(n),iun01,'ua',1.0,850, ! m/s
+            call read_field(work1,n,iun01,'ua',1.0,850, ! m/s
      $           ni,nj)
-            call read_field(work2,tstamp(n),iun01,'va',1.0,850, ! m/s
+            call read_field(work2,n,iun01,'va',1.0,850, ! m/s
      $           ni,nj)
          endif
 #endif         
@@ -863,14 +863,14 @@ c     On evalue la distance entre les points de grille
 !     de deplacement des cyclones. On prend la moitie du vent
 !     a 500 hPa
 #ifndef NETCDF
-         call read_field(U,tstamp(n),iun01,'ua',(K_UVCT/2.0),500, ! m/s
+         call read_field(U,n,iun01,'ua',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
-         call read_field(V,tstamp(n),iun01,'va',(K_UVCT/2.0),500, ! m/s
+         call read_field(V,n,iun01,'va',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
 #else
-         call read_field(U,tstamp(n),iun01,'ua',0.5,500, ! m/s
+         call read_field(U,n,iun01,'ua',0.5,500, ! m/s
      $        ni,nj)
-         call read_field(V,tstamp(n),iun01,'va',0.5,500, ! m/s
+         call read_field(V,n,iun01,'va',0.5,500, ! m/s
      $        ni,nj)
 #endif
 
@@ -1876,7 +1876,7 @@ c######################################################################
 #ifndef NETCDF
          getvar = 'GZ'
 #else
-         getvar = 'hgtd'
+         getvar = 'zg'
 #endif
       endif
 !     

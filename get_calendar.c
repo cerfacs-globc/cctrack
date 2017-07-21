@@ -52,6 +52,8 @@ LICENSE END */
 /** FALSE value macro is 0. */
 #define FALSE 0
 
+#include <stdio.h>
+
 int get_calendar_(int *year, int *month, int *day, int *hour, int *minutes, double *seconds, char *tunits, double *timein, int *ntime);
 
 /** Get year,month,day,hour,min,sec given time in udunits. */
@@ -65,7 +67,7 @@ get_calendar_(int *year, int *month, int *day, int *hour, int *minutes, double *
       @param[out]  hour       Hour vector
       @param[out]  minutes    Minutes vector
       @param[out]  seconds    Seconds vector
-      @param[out]  tunits     Time units (udunits)
+      @param[in]   tunits     Time units (udunits)
       @param[in]   timein     Input time vector values
       @param[in]   ntime      Number of times
    */
@@ -75,20 +77,41 @@ get_calendar_(int *year, int *month, int *day, int *hour, int *minutes, double *
 
   ut_system *unitSystem = NULL; /* Unit System (udunits) */
   ut_unit *dataunits = NULL; /* udunits variable */
+  ut_unit *udu_origin_zero=NULL;
+  cv_converter *conv_user_to_lib=NULL;
+ 
+  int y0, m0, d0, h0, min0;
+  double  s0, rez;  
+  char u_str[1024];
 
-  double res;
+  double res, timeinconv;
 
   /* Initialize udunits */
   ut_set_error_message_handler(ut_ignore);
   unitSystem = ut_read_xml(NULL);
   ut_set_error_message_handler(ut_write_to_stderr);
   dataunits = ut_parse(unitSystem, tunits, UT_ASCII);
-  
+
+  /* Set zero */
+  unitSystem = ut_get_system(dataunits);
+  ut_decode_time( 0.0, &y0, &m0, &d0, &h0, &min0, &s0, &rez );  
+  sprintf( u_str, "seconds since %04d-%02d-%02d %02d:%02d:%.12lf", y0, m0, d0, h0, min0, s0 );
+  udu_origin_zero = ut_parse( unitSystem, u_str, UT_ASCII );
+
+  /* Sets converter FROM given units TO library units */
+  conv_user_to_lib = ut_get_converter(dataunits, udu_origin_zero);
+ 
   /* Loop over times and retrieve day, month, year */
-  for (t=0; t<(*ntime); t++)
-    (void) ut_decode_time(timein[t], &(year[t]), &(month[t]), &(day[t]), &(hour[t]), &(minutes[t]), &(seconds[t]), &res);
+  for (t=0; t<(*ntime); t++) {
+    /* Do the conversion */
+    timeinconv = cv_convert_double(conv_user_to_lib, timein[t]);
+    /* Decode time */
+    (void) ut_decode_time(timeinconv, &(year[t]), &(month[t]), &(day[t]), &(hour[t]), &(minutes[t]), &(seconds[t]), &res);
+  }
   
   /* Terminate udunits */
+  (void) cv_free(conv_user_to_lib);
+  (void) ut_free(udu_origin_zero);
   (void) ut_free(dataunits);
   (void) ut_free_system(unitSystem);
 
