@@ -1853,6 +1853,7 @@ c######################################################################
          print*
          print*,' -output_type : Format des sorties ascii:'
          print*,'                xml ou legacy'
+         print*
          stop
       endif
 
