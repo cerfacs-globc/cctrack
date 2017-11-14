@@ -90,7 +90,7 @@
 #include "tracks_cte.h"
 !     
       integer maxtim, maxtrk, maxctr
-      parameter(maxtim=40000)    ! Nombre de pas de temps max.
+      parameter(maxtim=40000)   ! Nombre de pas de temps max.
       parameter(maxtrk=500)     ! Nombre de trajectoires actives max.
       parameter(maxctr=150)     ! Nombre de centres max. par trajectoire
 
@@ -101,8 +101,8 @@
       integer level             ! Niveau vertical suivi
       integer fvort             ! Cressman smoothing radius (km) for vort
       integer fpres             ! Cressman smoothing radius (km) for press
-      integer anal              ! >= 0 ( < 0) analyses (previsions) en entree
-      integer nofst             ! /=0 ( =0 pas d') ecriture en fichier std 
+      integer analyse           ! >= 0 ( < 0) analyses (previsions) en entree
+      integer nofst             ! /=0 ( =0 pas d') ecriture en fichier std ou NetCDF
       integer isign             ! +1 (-1) on suit les cyclones (anticyclones)
       integer vortcnt           ! 0 ( /=0) suivi en tourbillon (pression)
       integer anticycl          ! 0 ( /=0) on suit les anticyclones (cyclones)
@@ -325,21 +325,32 @@
       logical start             ! True = on demarre une trajectoire
 
 !     Variables associees aux fichers d'entrees/sorties
-      character*1024 infile     ! Fichier d'entre en format RPN
+      character*1024 infile     ! Fichier d'entree
+      character*1024 infile2    ! Fichier d'entree orographie
+      character*1024 infile3    ! Fichier d'entree masque terre-mer
       character*1024 outfile    ! Base pour les fichier de sorties
       character*1024 ofname1    ! Fichier de sortie #1
       character*1024 ofname2    ! Fichier de sortie #2
 
       integer iun01             ! Unite pour le fichier d'entree
+      integer iun02             ! Unite pour le fichier d'entree orographie
+      integer iun03             ! Unite pour le fichier d'entree masque terre-mer
       integer iun51             ! Unite pour le fichier de sortie #1
       integer iun52             ! Unite pour le fichier de sortie #2
       integer iun60             ! Unite pour le fichier ./warmstart.txt
       integer real_len          ! Fonction pour la calcul de la longueur d'un string 
+#ifndef NETCDF
       integer fnom              ! Fonction ARMNLIB
       integer fstouv            ! Fonction ARMNLIB
       integer fstopc            ! Fonction ARMNLIB
       integer fstfrm            ! Fonction ARMNLIB
       integer fclos             ! Fonction ARMNLIB
+#else
+      integer wstart(4), wcount(4)
+      integer ilatid, ilonid, itimeid, latdimid, londimid, timedimid
+      integer lonextdimid, latextdimid
+      integer latid, lonid, timeid
+#endif
       integer nrecs(3)          ! Valeur retournee par FSTOUV
       integer ier               ! Valeur retournee par FSTLIR
 
@@ -355,6 +366,10 @@
       character*1 grtyp         ! Type de grille
 #else
       character*256 getvar      ! Variable pour l'obtention des parametres de grille
+      character*256 attname
+      character*256 attvalue
+      integer rhdims(4)
+      integer orogid, orogfid
 #endif
 
       integer global            ! 0 = grille LAM, 1 = grille globale ou ni /= i
@@ -396,12 +411,15 @@
       integer niext             ! Dimension de la grille etendue en x
       integer njext             ! Dimension de la grille etendue en y
 
+      character*20 str
+
 !**********************************************************************
 !     Traitement des cles d'appel
 !**********************************************************************
-      call get_options(SILENT, IP3, GETVAR, INFILE, OUTFILE,
+      call get_options(SILENT, IP3, GETVAR,
+     $     INFILE, INFILE2, INFILE3, OUTFILE,
      $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
-     $     ANAL, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
+     $     ANALYSE, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
      $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
      $     ONLYWARM, OUTPUT_TYPE)      
 
@@ -412,12 +430,16 @@
      $     'JUL','AUG','SEP','OCT','NOV','DEC'/
 
       iun01 = 1
+      iun02 = 2
+      iun03 = 3
       iun51 = 51
       iun52 = 52
       iun60 = 60
 
 #ifndef NETCDF
       ofname1 = outfile(1:real_len(outfile))//'.fst' ! fichier sortie RPN
+#else
+      ofname1 = outfile(1:real_len(outfile))//'.nc' ! fichier sortie NetCDF
 #endif
       if ( trim(output_type) == 'xml' ) then
          ofname2 = outfile(1:real_len(outfile))//'.xml' ! fichier sortie XML
@@ -439,10 +461,25 @@
 !     Ouverture fichier input NETCDF
       ier = nf_open(infile(1:real_len(infile)), NF_NOWRITE, iun01)
       if (ier .ne. nf_noerr) call handle_err(ier)
+!     Ouverture fichier input NETCDF orographie
+      ier = nf_open(infile2(1:real_len(infile2)), NF_NOWRITE, iun02)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+!     Ouverture fichier input NETCDF masque terre-mer
+      ier = nf_open(infile3(1:real_len(infile3)), NF_NOWRITE, iun03)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      if (nofst.ne.0) then
+!     Ouverture fichier output NetCDF
+         ier = nf_create(ofname1, OR(NF_CLASSIC_MODEL, NF_NETCDF4), iun51)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+      endif
 #endif
       
 !     Ouverture du fichier des trajectoires (txt)
       open(unit=iun52, file=ofname2, status='unknown', form='FORMATTED')
+      if ( trim(output_type) == 'xml' ) then
+         write(iun52,'(a)') "<tracks>"
+      endif
 
 #ifndef NETCDF
 !     FSTD: On ne tolere pas les erreurs a partir de warning et plus
@@ -462,8 +499,19 @@
 !     Parametres pour EZSCINT
       gdid = ezqkdef(ni,nj,grtyp,ig1,ig2,ig3,ig4,iun01)
 #else
-!     Parametres meta-donnees fichier NETCDF
-      
+!     Parametres meta-donnees globales fichier NETCDF
+      if (nofst.ne.0) then
+         attname = "Conventions"
+         attvalue = "CF-1.6"
+         ier = nf_put_att_text(iun51, NF_GLOBAL, attname, real_len(attvalue),
+     $        attvalue(1:real_len(attvalue)))
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         attname = "title"
+         attvalue = "Sinclair Tracking diagnostic file"
+         ier = nf_put_att_text(iun51, NF_GLOBAL, attname, real_len(attvalue),
+     $        attvalue(1:real_len(attvalue)))
+         if (ier .ne. nf_noerr) call handle_err(ier)      
+      endif
 #endif
       
 !     Nombre de niveau de geopotentiel
@@ -561,31 +609,38 @@ c     On evalue la distance entre les points de grille
          ig4ext = ig4
       endif
 #else
-      call extend_glb_grid(NIEXT, lon, ni, nj)
-      njext  = nj
-      ig1ext = ig1
-      ig2ext = ig2
-      ig3ext = ig3
-      ig4ext = ig4
+      if ( global .eq. 0 ) then ! LAM
+         call extend_lam_grid(NIEXT, NJEXT, lat, lon, ni)
+      else
+         call extend_glb_grid(NIEXT, lon, ni, nj)
+         njext  = nj
+         ig1ext = ig1
+         ig2ext = ig2
+         ig3ext = ig3
+         ig4ext = ig4
+      endif
 #endif
-
       allocate ( bufext(niext,njext) )
       allocate ( latext(niext,njext), lonext(niext,njext) )
       allocate ( delta_xext(niext,njext), delta_yext(niext,njext) )
       allocate ( bufext8(niext,njext) )
 
-#ifndef NETCDF
       if ( global .eq. 0 ) then ! LAM
+#ifndef NETCDF         
          ier = gdll(gdidext, LATEXT, LONEXT)
+#endif
          call calc_dxdy_gr(DELTA_XEXT, DELTA_YEXT, latext, lonext,
      $        niext, njext)
       else
          call extend_glb(DELTA_XEXT, delta_x, global, ni, nj, niext)
          call extend_glb(DELTA_YEXT, delta_y, global, ni, nj, niext)
       endif
-#else
-         call extend_glb(DELTA_XEXT, delta_x, global, ni, nj, niext)
-         call extend_glb(DELTA_YEXT, delta_y, global, ni, nj, niext)
+
+#ifdef NETCDF
+      ier = nf_def_dim(iun51, 'longitudeext', niext, lonextdimid)
+      if (ier .ne. nf_noerr) call handle_err(ier)      
+      ier = nf_def_dim(iun51, 'latitudeext', njext, latextdimid)
+      if (ier .ne. nf_noerr) call handle_err(ier)      
 #endif
 
 !**********************************************************************
@@ -641,6 +696,93 @@ c     On evalue la distance entre les points de grille
       endif
 
 !**********************************************************************
+!     Ecriture header + dimensions fichier NetCDF si ecriture fichier de sortie
+!**********************************************************************
+#ifdef NETCDF
+      if (nofst.ne.0) then
+
+! Dimensions
+         ier = nf_def_dim(iun51, 'longitude', ni, londimid)
+         if (ier .ne. nf_noerr) call handle_err(ier)      
+         ier = nf_def_dim(iun51, 'latitude', nj, latdimid)
+         if (ier .ne. nf_noerr) call handle_err(ier)      
+         ier = nf_def_dim(iun51, 'time', NF_UNLIMITED, timedimid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+! Define dimension variables
+         rhdims(1) = timedimid
+         ier = nf_def_var(iun51, 'time', nf_double, 1, rhdims, timeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+         rhdims(1) = londimid
+         rhdims(2) = latdimid
+         ier = nf_def_var(iun51, 'longitude', nf_float, 2, rhdims, lonid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         rhdims(1) = londimid
+         rhdims(2) = latdimid
+         ier = nf_def_var(iun51, 'latitude', nf_float, 2, rhdims, latid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+! Copy CF attributes from input file         
+         ier = nf_inq_varid(iun01, 'time', itimeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, itimeid, 'standard_name', iun51, timeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, itimeid, 'long_name', iun51, timeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, itimeid, 'units', iun51, timeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, itimeid, 'calendar', iun51, timeid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+         ier = nf_inq_varid(iun01, 'latitude', ilatid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilatid, 'standard_name', iun51, latid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilatid, 'long_name', iun51, latid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilatid, 'units', iun51, latid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+         ier = nf_inq_varid(iun01, 'longitude', ilonid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilonid, 'standard_name', iun51, lonid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilonid, 'long_name', iun51, lonid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_copy_att(iun01, ilonid, 'units', iun51, lonid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+! End define mode
+         ier = nf_enddef(iun51)
+         if (ier .ne. nf_noerr) call handle_err(ier)      
+
+! Write dimension variables
+         wstart(1) = 1
+         wstart(2) = 1
+
+         wcount(1) = ntimes
+         ier = nf_put_vara_double(iun51, timeid, wstart, wcount, tstamp)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+         wcount(1) = ni
+         wcount(2) = nj
+         ier = nf_put_vara_real(iun51, lonid, wstart, wcount, lon)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+
+         wcount(1) = ni
+         wcount(2) = nj
+         ier = nf_put_vara_real(iun51, latid, wstart, wcount, lat)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+      endif
+
+      call ecrit_nc(iun51, delta_x, 'delta_x', 1, 1,
+     $     londimid, latdimid, timedimid, ni, nj)
+      call ecrit_nc(iun51, delta_y, 'delta_y', 1, 1,
+     $     londimid, latdimid, timedimid, ni, nj)
+#endif
+
+!**********************************************************************
 !     Lecture de la topographie et calcul de VCRIT
 !**********************************************************************
 #ifndef NETCDF
@@ -651,28 +793,34 @@ c     On evalue la distance entre les points de grille
       call read_orog(OROG,iun01,ni,nj)
 #else
       if (tropic .ge. 0) then
-         call read_landsea(LANDSEA,iun01,ni,nj)
+         call read_landsea(LANDSEA,iun03,'lsm',ni,nj)
       endif
 
-      call read_orog(OROG,iun01,ni,nj)
+      call read_orog(OROG,iun02,'z',ni,nj)
 #endif
 
-#ifndef NETCDF
       if (nofst.ne.0) then
+#ifndef NETCDF
          call ecrit_fst(iun51,orog,'MX','TOPO_NF ',0,0,
      $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
-      endif
+#else
+         call ecrit_nc(iun51, orog, 'z', 1, 1, londimid, latdimid,
+     $        timedimid, ni, nj)
 #endif
+      endif
 
 !     smooth orography to 400. km
       work8(:,:) = real(orog(:,:),kind=8)
       call smooth_c(WORK8, ni, nj, 400.E3, work8, delta_x, delta_y)
       orog(:,:)  = real(work8(:,:))
 
-#ifndef NETCDF
       if (nofst.ne.0) then
+#ifndef NETCDF
          call ecrit_fst(iun51,orog,'MX','TOPO    ',0,0,
      $        0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+#else
+         call ecrit_nc(iun51, orog, 'zf', 1, 1, londimid, latdimid,
+     $        timedimid, ni, nj)
       endif
 #endif
       
@@ -747,13 +895,13 @@ c     On evalue la distance entre les points de grille
 !     
 !     Definition du premier IP2
 #ifndef NETCDF
-      if (anal.ne.0) then
+      if (analyse.ne.0) then
          ip2 = hi - tstep
       else
          ip2 = 0       
       endif
 #else
-      anal = 0
+      analyse = 0
       ip2 = 0
 #endif
 !     
@@ -768,7 +916,7 @@ c     On evalue la distance entre les points de grille
 !----------------------------------------------------------------------
 !     1a. Definition de IP2 et NPAS pour ECRIT_FST
 !----------------------------------------------------------------------
-         if (anal.ne.0) then
+         if (analyse.ne.0) then
             ip2 = ip2 + tstep
             if (deet.ne.0) then
                npas = nint(float(ip2)*(3600.0/float(deet)))
@@ -776,7 +924,7 @@ c     On evalue la distance entre les points de grille
                npas = 0
             endif
 
-            if (anal.eq.2) then
+            if (analyse.eq.2) then
 !     cas ou ip2 = heure a partir de la 1ere analyse
                dateo = tstamp(1)
             endif
@@ -833,16 +981,16 @@ c     On evalue la distance entre les points de grille
          call read_field(PRESS,n,iun01,'psl',0.01,0,ni,nj) ! Pa converted to hPa
 
          if (tropic .lt. 0 .and. phase .lt. 0) then
-            call read_field(H,n,iun01,'zg',0.1,level, ! m converted to dam
+            call read_field(H,n,iun01,'zg1000',0.1/9.80655,level, ! m converted to geopot height and dam
      $           ni,nj)
          else
-            call read_field(work1,n,iun01,'zg',0.1,250, ! m converted to dam
+            call read_field(work1,n,iun01,'zg',0.1/9.80655,250, ! m converted to geopot height and dam
      $           ni,nj)
-            call read_field(work2,n,iun01,'zg',0.1,850, ! m converted to dam
+            call read_field(work2,n,iun01,'zg',0.1/9.80655,850, ! m converted to geopot height and dam
      $           ni,nj)
             H(:,:)  = work1(:,:) - work2(:,:) ! 250-850 hPa (dam)
 
-            call interpolv(h3d, work1, work2, 'zg', n, iun01, 
+            call interpolv(h3d, work1, work2, 'zg', n, iun01, 0.1/9.80655,
      $           nivh, nkh, nivhm, nkhm, ni, nj) ! ! m converted to dam
             HL(:,:) = h3d(:,:,7) - h3d(:,:,nkh) ! 600-900 hPa (dam)
 
@@ -868,9 +1016,9 @@ c     On evalue la distance entre les points de grille
          call read_field(V,n,iun01,'va',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
 #else
-         call read_field(U,n,iun01,'ua',0.5,500, ! m/s
+         call read_field(U,n,iun01,'ua500',0.5,500, ! m/s
      $        ni,nj)
-         call read_field(V,n,iun01,'va',0.5,500, ! m/s
+         call read_field(V,n,iun01,'va500',0.5,500, ! m/s
      $        ni,nj)
 #endif
 
@@ -907,6 +1055,12 @@ c     On evalue la distance entre les points de grille
 
 !     call ecrit_fst(iun51,VORT,'QR','VORT_RAW',level,ip2,
 !     $      npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+#ifdef NETCDF
+         call ecrit_nc(iun51, vort,
+     $        'qr'//trim(str(level))//'_raw',
+     $        n, ntimes, londimid, latdimid, timedimid, ni, nj)
+#endif
+
          srad = float(fvort) * 1.E3
          if ( srad .gt. 0 ) then
             if ( global .eq. 0 ) then ! LAM
@@ -914,18 +1068,41 @@ c     On evalue la distance entre les points de grille
 !     call ecrit_fst(iun51,bufext,'QR','VORT_EXT',level,ip2,
 !     $               npas,dateo,niext,njext,ig1ext,ig2ext,ig3ext,ig4ext,ip3,
 !     $               grtyp,typvar,deet)
+#ifdef NETCDF
+               call ecrit_nc(iun51, bufext,
+     $              'qr'//trim(str(level))//'_ext',
+     $              n, ntimes, lonextdimid, latextdimid,
+     $              timedimid, niext, njext)
+#endif
                bufext8(:,:) = real(bufext(:,:),kind=8)
                call smooth_c(bufext8, niext, njext, srad,
      $              bufext8, delta_xext, delta_yext)
+#ifdef NETCDF
+               call ecrit_nc(iun51, bufext,
+     $              'qr'//trim(str(level))//'_extf',
+     $              n, ntimes, lonextdimid, latextdimid,
+     $              timedimid, niext, njext)
+#endif
                call crop(VORT8, bufext8, ni, nj, niext, njext)
             else
                call extend_glb(BUFEXT, vort, global, ni, nj, niext)
 !     call ecrit_fst(iun51,bufext,'QR','VORT_EXT',level,ip2,
 !     $               npas,dateo,niext,njext,ig1ext,ig2ext,ig3ext,ig4ext,ip3,
 !     $               grtyp,typvar,deet)
+#ifdef NETCDF
+               call ecrit_nc(iun51, bufext,
+     $              'qr'//trim(str(level))//'_ext',
+     $              n, ntimes, lonextdimid, latextdimid,
+     $              timedimid, niext, njext)
+#endif
                bufext8(:,:) = real(bufext(:,:),kind=8)
                call smooth_c(bufext8, niext, nj, srad,
      $              bufext8, delta_xext, delta_yext)
+#ifdef NETCDF
+               call ecrit_nc(iun51, bufext,
+     $              'qr'//trim(str(level))//'_extf',
+     $              n, ntimes, lonextdimid, latextdimid, timedimid, niext, njext)
+#endif
                call crop(VORT8, bufext8, ni, nj, niext, nj)
             endif
          endif
@@ -956,14 +1133,19 @@ c     On evalue la distance entre les points de grille
          call smooth_c(WORK8, ni, nj, sraduv, work8, delta_x, delta_y)
          v(:,:)     = real(work8(:,:))
 
-#ifndef NETCDF
          if (nofst.ne.0) then
+#ifndef NETCDF
             call ecrit_fst(iun51,u,'UU','SPEED_Y ',500,ip2, ! m/s
      $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
             call ecrit_fst(iun51,v,'VV','SPEED_Y ',500,ip2, ! m/s
      $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
-         endif
+#else
+         call ecrit_nc(iun51, u, 'ua500', n, ntimes, londimid, latdimid,
+     $        timedimid, ni, nj)
+         call ecrit_nc(iun51, v, 'va500', n, ntimes, londimid, latdimid,
+     $        timedimid, ni, nj)
 #endif
+         endif
          
 #ifndef NETCDF
 !     Conversion du vent selon la grille (x-y) en ses composantes
@@ -972,9 +1154,8 @@ c     On evalue la distance entre les points de grille
          call sdtouv2d(U, V, work1, work2, ni, nj)
 #endif
 
-#ifndef NETCDF
 !----------------------------------------------------------------------
-!     1f. Ecriture de differents champs en Fichier Standard
+!     1f. Ecriture de differents champs en sorties
 !----------------------------------------------------------------------
          if (nofst.ne.0) then
 !     Tourbillon du vent gradient ou relatif
@@ -988,52 +1169,95 @@ c     On evalue la distance entre les points de grille
                end do
             end do
             if (tropic .lt. 0 .and. phase .lt. 0) then
+#ifndef NETCDF
                call ecrit_fst(iun51,vct,'QR','GR-VCRIT',level,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
                call ecrit_fst(iun51,vort,'QR','GRADIENT',level,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
+#else
+               call ecrit_nc(iun51, vct,
+     $              'qr'//trim(str(level))//'_gr-vcrit',
+     $              n, ntimes, londimid, latdimid, timedimid, ni, nj)
+               call ecrit_nc(iun51, vort,
+     $              'qr'//trim(str(level))//'_gradient',
+     $              n, ntimes, londimid, latdimid, timedimid, ni, nj)
+#endif
             else
+#ifndef NETCDF
                call ecrit_fst(iun51,vct,'QR','RV-VCRIT',850,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
                call ecrit_fst(iun51,vort,'QR','REL_VORT',850,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
+#else
+               call ecrit_nc(iun51, vct, 'qr850_gr-vcrit', n, ntimes,
+     $              londimid, latdimid, timedimid, ni, nj)
+               call ecrit_nc(iun51, vort, 'qr850_gradient', n, ntimes,
+     $              londimid, latdimid, timedimid, ni, nj)
+#endif
             endif
 
 !     Pression au niv de la mer
+#ifndef NETCDF
             call ecrit_fst(iun51,press,'PN','PNM_MD  ',0,ip2,
      $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
             call ecrit_fst(iun51,pressnf,'PN','PNM_NF  ',0,ip2,
      $           npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+#else
+            call ecrit_nc(iun51, press, 'pslf', n, ntimes,
+     $           londimid, latdimid, timedimid, ni, nj)
+            call ecrit_nc(iun51, pressnf, 'psl', n, ntimes,
+     $           londimid, latdimid, timedimid, ni, nj)
+#endif
 
 !     Geopotentiel / Epaisseur
             if (tropic .lt. 0 .and. phase .lt. 0) then
+#ifndef NETCDF
                call ecrit_fst(iun51,h,'GZ','GEOPT   ',level,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
                call ecrit_fst(iun51,hnf,'GZ','GEOPT_NF',level,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,
      $              deet)
+#else
+            call ecrit_nc(iun51, h, 'zgf'//trim(str(level)),
+     $              n, ntimes,
+     $              londimid, latdimid, timedimid, ni, nj)
+            call ecrit_nc(iun51, hnf, 'zg'//trim(str(level)),
+     $           n, ntimes,
+     $           londimid, latdimid, timedimid, ni, nj)
+#endif
             else
+#ifndef NETCDF
                call ecrit_fst(iun51,h,'DZ','THICK_UL',250,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,850,grtyp,
      $              typvar,deet)
                call ecrit_fst(iun51,hl,'DZ','THICK_LL',600,ip2,
      $              npas,dateo,ni,nj,ig1,ig2,ig3,ig4,900,grtyp,typvar,
      $              deet)
+#else
+            call ecrit_nc(iun51, h, 'dz250', n, ntimes,
+     $              londimid, latdimid, timedimid, ni, nj)
+            call ecrit_nc(iun51, hl, 'dz600', n, ntimes,
+     $           londimid, latdimid, timedimid, ni, nj)
+#endif
             endif
 
 !     High_Terrain
             if (n.eq.1) then
+#ifndef NETCDF
                call ecrit_fst(iun51,high_terrain,'XX','HIGH_TER',0,0,
      $              0,dateo,ni,nj,ig1,ig2,ig3,ig4,ip3,grtyp,typvar,deet)
+#else
+               call ecrit_nc(iun51, high_terrain, 'xx_high_terrain', n, 1,
+     $              londimid, latdimid, timedimid, ni, nj)
+#endif
             endif
 
          endif
-#endif
          
 !**********************************************************************
 !----------------------------------------------------------------------
@@ -1239,14 +1463,14 @@ c     On evalue la distance entre les points de grille
      $           c_yf(ic), 1)
 #else
             ier= gdxysval(C_PRESS(IC), pressnf, c_xf(ic), c_yf(ic),
-     $           lat, lon, ni, nj)
+     $           ni, nj)
 #endif
 
 !     On determine la valeur du tourbillon
 #ifndef NETCDF
             ier = gdxysval(gdid, vort_t, vort, c_xf(ic), c_yf(ic), 1)
 #else
-            ier = gdxysval(vort_t, vort, c_xf(ic), c_yf(ic), lat, lon, ni, nj)
+            ier = gdxysval(vort_t, vort, c_xf(ic), c_yf(ic), ni, nj)
 #endif
             c_vort(ic) = ihem * vort_t
 
@@ -1257,9 +1481,9 @@ c     On evalue la distance entre les points de grille
             ier = gdxysval(gdid, C_V(IC), V, c_xf(ic), c_yf(ic), 1)
 #else
             ier = gdxysval(C_U(IC), U, c_xf(ic), c_yf(ic),
-     $           lat, lon, ni, nj)
+     $           ni, nj)
             ier = gdxysval(C_V(IC), V, c_xf(ic), c_yf(ic),
-     $           lat, lon, ni, nj)
+     $           ni, nj)
 #endif
             
 !     On determine la valeur du masque Terre-Mer
@@ -1269,7 +1493,7 @@ c     On evalue la distance entre les points de grille
      $              c_xf(ic), c_yf(ic), 1)
 #else
                ier = gdxysval(C_LANDSEA(IC), landsea, c_xf(ic), c_yf(ic),
-     $              lat, lon, ni, nj)
+     $              ni, nj)
 #endif
             endif
 
@@ -1478,6 +1702,7 @@ c     On evalue la distance entre les points de grille
 !----------------------------------------------------------------------
 !     5d. On ecrit les trajectoires terminees dans un fichier texte
 !----------------------------------------------------------------------
+         
          do it = 1, n_track
 
             if ( (.not. trk_used(it)) .or. (n.eq.ntimes) ) then
@@ -1623,6 +1848,9 @@ c     On evalue la distance entre les points de grille
       ier = nf_close(iun01)
       if (ier .ne. nf_noerr) call handle_err(ier)
 #endif
+      if ( trim(output_type) == 'xml' ) then
+         write(iun52,'(a)') "</tracks>"
+      endif
       close(unit=iun52)
 !     
       deallocate ( bufext )
@@ -1686,16 +1914,17 @@ c######################################################################
 !***********************************************************************
 !---- Sous-routine pour la lecture des options
 !***********************************************************************
-      subroutine get_options(SILENT, IP3, GETVAR, INFILE, OUTFILE,
+      subroutine get_options(SILENT, IP3, GETVAR,
+     $     INFILE, INFILE2, INFILE3, OUTFILE,
      $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
-     $     ANAL, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
+     $     ANALYSE, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
      $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
      $     ONLYWARM, OUTPUT_TYPE)
 
       implicit none
       
       integer silent, ip3, npt, level, fvort, fpres, tcrad, hcrit
-      integer anticycl, vortcnt, anal, tropic, nofst, tdwind
+      integer anticycl, vortcnt, analyse, tropic, nofst, tdwind
       integer phase, bcrit, latmin, latmax, lonmin, lonmax, relocp
       integer onlywarm
 
@@ -1708,33 +1937,33 @@ c######################################################################
 #else
       character*256 getvar
 #endif
-      character*1024 infile, outfile
+      character*1024 infile, infile2, infile3, outfile
 
       integer ier
       integer fstopc
 
       integer narg
-      parameter (narg=28)
+      parameter (narg=30)
 
       character *12 cle(narg)
       character *1024 def(narg),val(narg) 
 
 !     - cles         
-      data cle /'i.','o.','silent','ip3','getvar','npt',
+      data cle /'i.','i2.','i3.','o.','silent','ip3','getvar','npt',
      $     'dist_crit','level','anticycl','fvort','vortcnt',
-     $     'vc','anal','tropic','nofst','fpres','tcrad',
+     $     'vc','analyse','tropic','nofst','fpres','tcrad',
      $     'hcrit','tdwind','phase','bcrit',
      $     'latmin','latmax','lonmin','lonmax','relocp',
      $     'onlywarm','output_type.'/
 !     - valeurs des cles si NON mentionnees a l'appel
-      data val /'scrap','scrap','-1','-1',' ','-1',
+      data val /'scrap','scrap','scrap','scrap','-1','-1',' ','-1',
      $     '-1.','-1','-1','-1','-1',
      $     '-1.','-1','-1','-1','-1','-1',
      $     '-1','-1','-1','-1',
      $     '-1','-1','-1','-1','-1',
      $     '-1','xml'/
 !     - valeurs des cles si mentionnees a l'appel SANS valeurs
-      data def /'scrap','scrap','0','0',' ','4',
+      data def /'scrap','scrap','scrap','scrap','0','0',' ','4',
      $     '3.75','1000','0','800','0',
      $     '2.5','0','0','0','300','200',
      $     '935','22','0','25',
@@ -1749,43 +1978,45 @@ c######################################################################
       call ccard(cle,def,val,narg,-1)
 *     
       read (val(1),4) infile
-      read (val(2),4) outfile
+      read (val(2),4) infile2
+      read (val(3),4) infile3
+      read (val(4),4) outfile
  4    format(a1024)
 
-      read (val(3),*) silent
-      read (val(4),*) ip3
+      read (val(5),*) silent
+      read (val(6),*) ip3
 
-      read (val(5),3) getvar
+      read (val(7),3) getvar
 #ifndef NETCDF
  3    format(a2)
 #else
  3    format(a256)
 #endif
 
-      read (val(6),*) npt
-      read (val(7),*) dist_crit
-      read (val(8),*) level
-      read (val(9),*) anticycl
-      read (val(10),*) fvort
-      read (val(11),*) vortcnt
-      read (val(12),*) vc
-      read (val(13),*) anal
-      read (val(14),*) tropic
-      read (val(15),*) nofst
-      read (val(16),*) fpres
-      read (val(17),*) tcrad
-      read (val(18),*) hcrit
-      read (val(19),*) tdwind
-      read (val(20),*) phase
-      read (val(21),*) bcrit
-      read (val(22),*) latmin
-      read (val(23),*) latmax
-      read (val(24),*) lonmin
-      read (val(25),*) lonmax
-      read (val(26),*) relocp
-      read (val(27),*) onlywarm
+      read (val(8),*) npt
+      read (val(9),*) dist_crit
+      read (val(10),*) level
+      read (val(11),*) anticycl
+      read (val(12),*) fvort
+      read (val(13),*) vortcnt
+      read (val(14),*) vc
+      read (val(15),*) analyse
+      read (val(16),*) tropic
+      read (val(17),*) nofst
+      read (val(18),*) fpres
+      read (val(19),*) tcrad
+      read (val(20),*) hcrit
+      read (val(21),*) tdwind
+      read (val(22),*) phase
+      read (val(23),*) bcrit
+      read (val(24),*) latmin
+      read (val(25),*) latmax
+      read (val(26),*) lonmin
+      read (val(27),*) lonmax
+      read (val(28),*) relocp
+      read (val(29),*) onlywarm
 
-      read (val(28),5) output_type
+      read (val(30),5) output_type
  5    format(a12)
 
       print*
@@ -1794,11 +2025,15 @@ c######################################################################
       print*,' /////////////////////////////////////////////////////'
       print*
 
-      if (val(1).eq.'scrap') then
+      if (val(1).eq.'scrap' .or. val(2).eq.'scrap' .or. val(3).eq.'scrap') then
          print*
          print*,' ******** Cles standards ********'
          print*
          print*,' -i        : fichier donnees d entree'
+         print*
+         print*,' -i2       : fichier donnees d entree orographie'
+         print*
+         print*,' -i3       : fichier donnees d entree masque terre-mer'
          print*
          print*,' -o        : fichier donnees de sortie contenant les'
          print*,'             resultats du calcul'
@@ -1812,7 +2047,7 @@ c######################################################################
          print*
          print*,' -fpres    : Cressman smoothing radius (km) for press '
          print*
-         print*,' -anal     : Analyses en entree'
+         print*,' -analyse  : Analyses en entree'
 #ifndef NETCDF
          print*
          print*,' -nofst    : pas de sorties en fichier std '
@@ -1867,10 +2102,10 @@ c######################################################################
 #endif
 !     
       if (ip3.eq.-1) then
-         read (def(4),*) ip3
+         read (def(6),*) ip3
       endif
 !     
-      if (val(2).eq.'scrap') then
+      if (val(4).eq.'scrap') then
          print*, " Valeurs par defaut: output  = scrap"
       endif
 !     
@@ -1891,16 +2126,20 @@ c######################################################################
       endif
 #endif
 !     
-      if (anal.lt.0) then
+      if (dist_crit.lt.0) then
+         read (def(9),*) dist_crit
+      endif
+
+      if (analyse.lt.0) then
          print*,' input: PREVISION'
       else
          print*,' input: ANALYSES'
-         if (anal.eq.0) then
+         if (analyse.eq.0) then
             print*,' dateo = datev, ip2 = 0'
-         elseif (anal.eq.2) then
+         elseif (analyse.eq.2) then
             print*,' ip2 = heure a partir de la 1ere analyse'
          else
-            print*,'ERREUR: anal = 0 (sans valeur) ou 2 ... Stop !'
+            print*,'ERREUR: analyse = 0 (sans valeur) ou 2 ... Stop !'
             stop
          endif
       endif

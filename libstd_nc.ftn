@@ -721,7 +721,7 @@ c***********************************************************************
       
       dx = x - float(i)
       dy = y - float(j)
-      
+
       y2 = zlin(dble(zin(i,j  )),dble(zin(i+1,j  )),dx)
       y3 = zlin(dble(zin(i,j+1)),dble(zin(i+1,j+1)),dx)
       

@@ -3,11 +3,11 @@
 ! declaration des variables
       integer tmax, ntrmax,n1a,n1b,n2,n3,n4,ntot_track,n
 
-      parameter(tmax=99)
+      parameter(tmax=999)
 
       integer dd(tmax),hh(tmax), yymm(tmax), n_track(tmax), ntr(tmax)
 
-      parameter(ntrmax=99)
+      parameter(ntrmax=999)
 
  !     integer vector(15,ntrmax)
       integer,  dimension (:,:)  , allocatable :: vector
@@ -25,6 +25,8 @@
       CHARACTER*128 infile, outfile,file_name,outfile_name
       character (len = 1) :: etk1
       character (len = 2) :: etk2
+      character (len = 3) :: etk3
+      character (len = 4) :: etk4
       character (len = 1) :: etk1b
       character (len = 2) :: etk2b
 
@@ -94,9 +96,9 @@ c--------------------------------------------------------------------
 
          n= ntr(i)
          if (tp .lt. 0) then
-            read (1,'(9X,100(I4,I2,I2,I2,I4,I4,I5,I3,I4))') vector
+            read (1,'(9X,1000(I4,I2,I2,I2,I4,I4,I5,I3,I4))') vector
          else
-            read (1,'(9X,100(I4,I2,I2,I2,I4,I4,I5,I3,I4,6I5))') vector
+            read (1,'(9X,1000(I4,I2,I2,I2,I4,I4,I5,I3,I4,6I5))') vector
          endif
 
          do j = 1,n
@@ -131,9 +133,15 @@ c--------------------------------------------------------------------
          if (i.lt.10) then
             write(unit=etk1, fmt='(I1)') i
             outfile_name = outfile(1:real_len(outfile))//etk1
-        else
+         else if (i.lt.100) then
             write(unit=etk2, fmt='(I2)') i
             outfile_name = outfile(1:real_len(outfile))//etk2
+         else if (i.lt.1000) then
+            write(unit=etk3, fmt='(I3)') i
+            outfile_name = outfile(1:real_len(outfile))//etk3
+         else
+            write(unit=etk4, fmt='(I4)') i
+            outfile_name = outfile(1:real_len(outfile))//etk4
          endif
 
          open (unit=i,file=outfile_name,action="write",status="new")
@@ -245,3 +253,27 @@ c
       real_len = length
       return
       end
+
+#ifdef NETCDF
+*     
+c***********************************************************************
+c---- Sous-routine HANDLE_ERROR                                     ----
+c***********************************************************************
+      subroutine handle_err(error_code)
+      implicit none
+      include 'netcdf.inc'
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Avril 2017                                               -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer error_code
+
+      print *, 'Error: ', nf_strerror(error_code)
+!     stop 2
+      call abort
+
+      end subroutine handle_err
+#endif

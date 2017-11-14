@@ -166,7 +166,7 @@ c***********************************************************************
 #ifndef NETCDF
                ier = gdxysval(gdid, PDS_FIELD, field, xp, yp, 1)
 #else
-               ier = gdxysval(PDS_FIELD, field, xp, yp, lat, lon, ni, nj)
+               ier = gdxysval(PDS_FIELD, field, xp, yp, ni, nj)
 #endif
                FTEST=PDS_FIELD*isign*fact
                IF(FTEST.GT.FMAX) THEN
@@ -306,7 +306,7 @@ C     See if <20° lat
 #ifndef NETCDF
                ier = gdxysval(gdid, PDS_VORT, vort, xp, yp, 1)
 #else
-               ier = gdxysval(PDS_VORT, vort, xp, yp, lat, lon, ni, nj)
+               ier = gdxysval(PDS_VORT, vort, xp, yp, ni, nj)
 #endif
                TAREA_20=TAREA_20+DAREA
             ELSE
@@ -371,10 +371,10 @@ C     Compute circulation out to this boundary
          IF(ITC.GT.0)THEN
             IR=0
             FCIRC=0
-c     DO RADIUS=NINT(DRAD),NINT(RAD_BOUND),NINT(DRAD)
+C            DO RADIUS=NINT(DRAD),NINT(RAD_BOUND),NINT(DRAD)
 C            DO RADIUS=DRAD,RAD_BOUND,DRAD
-            RADIUS=DRAD
-            DO WHILE (RADIUS.LE.RAD_BOUND)
+             RADIUS=DRAD
+             DO WHILE (RADIUS.LE.RAD_BOUND)
                IR=IR+1
 c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
                DAREA_1=2.*PI*(RADIUS-DRAD)**2*FLOAT(IDTHETA)/360.
@@ -383,13 +383,13 @@ c     DAREA=2.*PI*RADIUS*DRAD*FLOAT(IDTHETA)/360.
                
 c     FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)*1.E-5     
                FCIRC=FCIRC+DAREA*IHEM*RVORT(IR)
+               RADIUS=RADIUS+DRAD
             END DO
             BLAT(ITC,IC)=BLATT
             BLON(ITC,IC)=BLONN
          ENDIF
 !     TCIRC(IC)=TCIRC(IC)+FCIRC
          TCIRC=TCIRC+FCIRC
-         RADIUS=RADIUS+DRAD
       END DO                    ! azimuthal loop
 !     TCIRC(IC)=1.2345E10* TCIRC(IC)
       TCIRC=1.2345E10* TCIRC

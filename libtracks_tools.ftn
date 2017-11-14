@@ -376,6 +376,60 @@ c***********************************************************************
 
       return
       end
+#else
+c***********************************************************************
+c---- Sous-routine ECRIT_NC                                          ---
+c***********************************************************************
+      subroutine ecrit_nc(iun,buffer,nomvar,t,nt,londimid,latdimid,
+     $     timedimid,ni,nj)
+      implicit none
+
+      include 'netcdf.inc'
+
+      integer ni, nj, nt
+      character*(*) nomvar
+      integer londimid, latdimid, timedimid
+      integer iun, t
+      real buffer(ni,nj)
+
+      integer ier
+      integer rhdims(3), start(3), count(3)
+      integer varid, ndims
+
+c     Define variable in header if needed
+      ier = nf_inq_varid(iun, nomvar, varid)
+      if (ier .ne. nf_noerr) then
+c     Variable does not already exists, must create it
+         ier = nf_redef(iun)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         rhdims(1) = londimid
+         rhdims(2) = latdimid
+         if (nt .gt. 1) then
+            rhdims(3) = timedimid
+            ndims = 3
+         else
+            ndims = 2
+         endif
+         ier = nf_def_var(iun, nomvar, nf_float, ndims, rhdims, varid)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+         ier = nf_enddef(iun)
+         if (ier .ne. nf_noerr) call handle_err(ier)
+      endif
+
+c     Write variable onto disk
+      start(1) = 1
+      start(2) = 1
+      count(1) = ni
+      count(2) = nj
+      if (nt .gt. 1) then
+         start(3) = t
+         count(3) = 1
+      endif
+      ier = nf_put_vara_real(iun, varid, start, count, buffer)
+      if (ier .ne. nf_noerr) call handle_err(ier)
+
+      return
+      end
 #endif
 
 c***********************************************************************
@@ -1594,12 +1648,17 @@ c***********************************************************************
       integer varid, vartype, ndims
       integer start(4), count(4)
 
+      real scale_factor, add_offset
+
 c
 c     Expected dimensions order with ncdump for 2D matrix: float psl(time, lat, lon) !!is reversed!! in fortran
 c     If 3D matrix we have float ta(time, lev, lat, lon) !!is reversed!! in fortran
 c
       ier = nf_inq_varid(iun, nomvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         call handle_err(ier)
+      endif
+      print*,"NETCDF READ ",nomvar
 
       ier = nf_inq_vartype(iun, varid, vartype)
       if (ier .ne. nf_noerr) call handle_err(ier)
@@ -1626,6 +1685,19 @@ c
          endif
          ier = nf_get_vara_real(iun, varid, start, count, buffer)
          if (ier .ne. nf_noerr) call handle_err(ier)
+
+c     Apply offset and scale factor if provided
+         ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+         if (ier .ne. nf_noerr) then
+            scale_factor = 1.0
+         endif
+         ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+         if (ier .ne. nf_noerr) then
+            add_offset = 0.0
+         endif
+         call gdmpcn(buffer, buffer, scale_factor, ni, nj, 0)
+         call gdadcn(buffer, buffer, add_offset, ni, nj, 0)
+
       else
          print*
          print*,"Le champ n'est pas de type float et/ou n'est pas de dimension 3 ou 4... -> STOP !"
@@ -1679,9 +1751,16 @@ c***********************************************************************
       integer ni, nj
       real orog(ni,nj)
 
+      real scale_factor, add_offset
+      integer i, j
+      integer varid
+
+      integer*2, dimension (:,:), allocatable :: orogs
+      integer, dimension (:,:), allocatable :: orogi
+
       integer ier
-      integer varid, vartype, ndims
-      integer start(2), count(2)
+      integer vartype, ndims
+      integer start(3), count(3)
 
 c
 c     Expected dimensions order with ncdump for 2D matrix: float orog(lat, lon) !!is reversed!! in fortran
@@ -1702,11 +1781,20 @@ c
          ier = nf_inq_varndims(iun, varid, ndims)
          if (ier .ne. nf_noerr) call handle_err(ier)
          
-         if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
-            start(1) = 1
-            start(2) = 1
-            count(1) = ni
-            count(2) = nj
+         if (vartype.eq.NF_FLOAT) then
+            if (ndims .eq. 3) then
+               start(1) = 1
+               start(2) = 1
+               start(3) = 1
+               count(1) = ni
+               count(2) = nj
+               count(3) = 1
+            else
+               start(1) = 1
+               start(2) = 1
+               count(1) = ni
+               count(2) = nj
+            endif               
             ier = nf_get_vara_real(iun, varid, start, count, orog)
             if (ier .ne. nf_noerr) then
                print*
@@ -1716,11 +1804,99 @@ c
                print*
                orog(:,:)=0.0
             else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               call gdmpcn(orog, orog, scale_factor, ni, nj, 0)
+               call gdadcn(orog, orog, add_offset, ni, nj, 0)
                call gdmpcn(orog, orog, 1.0/9.80665, ni, nj, 0)
             endif
+         else if (vartype.eq.NF_SHORT) then
+            allocate ( orogs(ni,nj) )
+            if (ndims .eq. 3) then
+               start(1) = 1
+               start(2) = 1
+               start(3) = 1
+               count(1) = ni
+               count(2) = nj
+               count(3) = 1
+            else
+               start(1) = 1
+               start(2) = 1
+               count(1) = ni
+               count(2) = nj
+            endif               
+            ier = nf_get_vara_int2(iun, varid, start, count, orogs)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read orography! Set field = 0 '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               orog(:,:)=0.0
+            else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               do j=1,nj
+                  do i=1,ni
+                     orog(i,j) = ((float(orogs(i,j)) * scale_factor) + add_offset) / 9.80665
+                  enddo
+               enddo
+            endif
+            deallocate(orogs)
+         else if (vartype.eq.NF_INT) then
+            allocate ( orogi(ni,nj) )
+            if (ndims .eq. 3) then
+               start(1) = 1
+               start(2) = 1
+               start(3) = 1
+               count(1) = ni
+               count(2) = nj
+               count(3) = 1
+            else
+               start(1) = 1
+               start(2) = 1
+               count(1) = ni
+               count(2) = nj
+            endif               
+            ier = nf_get_vara_int(iun, varid, start, count, orogi)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read orography! Set field = 0 '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               orog(:,:)=0.0
+            else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               do j=1,nj
+                  do i=1,ni
+                     orog(i,j) = ((float(orogi(i,j)) * scale_factor) + add_offset) / 9.80665
+                  enddo
+               enddo
+            endif
+            deallocate(orogi)
          else
             print*
-            print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
+            print*,"Le champ orog n'est pas de type float/short/int et/ou n'est pas de dimension 2!!!"
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
             print*,' Cannot read orography! Set field = 0 '
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
@@ -1769,6 +1945,12 @@ c
       integer ni, nj
       real landsea(ni,nj)
 
+      integer*2, dimension (:,:), allocatable :: landseas
+      integer, dimension (:,:), allocatable :: landseai
+
+      integer i, j
+      real scale_factor, add_offset
+
       integer ier
       integer varid, vartype, ndims
       integer start(2), count(2)
@@ -1806,10 +1988,81 @@ c
                print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
                print*
                landsea(:,:)=0.0
+            else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               call gdmpcn(landsea, landsea, scale_factor, ni, nj, 0)
+               call gdadcn(landsea, landsea, add_offset, ni, nj, 0)
             endif
+         else if (vartype.eq.NF_SHORT .and. ndims.eq.2) then
+            allocate ( landseas(ni,nj) )
+            start(1) = 1
+            start(2) = 1
+            count(1) = ni
+            count(2) = nj
+            ier = nf_get_vara_int2(iun, varid, start, count, landseas)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read LandSea mask! Set field = 0 '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               landsea(:,:)=0.0
+            else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               do j=1,nj
+                  do i=1,ni
+                     landsea(i,j) = (float(landseas(i,j)) * scale_factor) + add_offset
+                  enddo
+               enddo
+            endif
+            deallocate(landseas)
+         else if (vartype.eq.NF_INT .and. ndims.eq.2) then
+            allocate ( landseai(ni,nj) )
+            start(1) = 1
+            start(2) = 1
+            count(1) = ni
+            count(2) = nj
+            ier = nf_get_vara_int(iun, varid, start, count, landseai)
+            if (ier .ne. nf_noerr) then
+               print*
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*,' Cannot read LandSea mask! Set field = 0 '
+               print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+               print*
+               landsea(:,:)=0.0
+            else
+               ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+               if (ier .ne. nf_noerr) then
+                  scale_factor = 1.0
+               endif
+               ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+               if (ier .ne. nf_noerr) then
+                  add_offset = 0.0
+               endif
+               do j=1,nj
+                  do i=1,ni
+                     landsea(i,j) = (float(landseai(i,j)) * scale_factor) + add_offset
+                  enddo
+               enddo
+            endif
+            deallocate(landseai)
          else
             print*
-            print*,"Le champ orog n'est pas de type float et/ou n'est pas de dimension 2!!!"
+            print*,"Le champ landsea n'est pas de type float et/ou n'est pas de dimension 2!!!"
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
             print*,' Cannot read LandSea mask! Set field = 0 (SEA) '
             print*,'!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
@@ -2224,8 +2477,8 @@ c***********************************************************************
       real lat(ni,nj), lon(ni,nj)
       real dlat, dlon
 
-      dlon = lon(2,1) - lon(1,1)
-      dlat = lat(2,1) - lat(1,1)
+      dlon = abs(lon(2,1) - lon(1,1))
+      dlat = abs(lat(1,2) - lat(1,1))
 
 c     On definit les parametres de la grille etendue
       ext_i=nint(5.0/dlon)
@@ -2316,14 +2569,15 @@ c     Extension par extrapolation
       ext_j=(njext-nj)/2
       if ( ext_i.ne.ext_j ) then
          print*
-         print*,"Extension non-symetrique !!!"
+         print*,"Extension non-symetrique !!! ext_i=",ext_i,
+     $        " ext_j=",ext_j
          print*
          stop
       endif
       ext=ext_i
 
 c     Variables pour la variation lineaire du gradient de 0 a 1
-c     pente negatuive (gradient diminue avec i ou j)
+c     pente negative (gradient diminue avec i ou j)
       pn=-1.0/(ext-1.0)
       bn=-ext*pn
 c     pente positive (gradient augmente avec i ou j)
@@ -3094,3 +3348,49 @@ c***********************************************************************
       end subroutine handle_err
 #endif
       
+*     
+c***********************************************************************
+c---- Fonction str !     "Convert an integer to string."
+c***********************************************************************
+      character(len=20) function str(k)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Novembre 2017                                               -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      integer, intent(in) :: k
+
+      write (str, *) k
+      str = adjustl(str)
+
+      end function str
+      
+*     
+c***********************************************************************
+c---- Fonction read_config : read configuration from json file
+c***********************************************************************
+      subroutine read_config(config_file)
+
+      use json_module
+
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     Novembre 2017                                               -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      character*(*) config_file
+      type(json_file) :: json
+      
+      ! initialize the class
+      call json%initialize()
+
+      !clean up
+      call json%destroy()      
+
+      end subroutine read_config
