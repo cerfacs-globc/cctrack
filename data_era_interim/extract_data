@@ -16,7 +16,7 @@ outfile="${period}_${model}.nc"
 
 mkdir -p results
 
-# ncks -d time,1,365 -d latitude,${latbox} -d longitude,-30.,30. uas_day_CNRM-CM5_rcp85_r1i1p1_20060101-21001231.nc out.nc
+# ncks -d time,0,365 -d latitude,${latbox} -d longitude,-30.,30. uas_day_CNRM-CM5_rcp85_r1i1p1_20060101-21001231.nc out.nc
 #-rwxr-xr-x 1 page globc 1.6G Sep 22 16:01 psl_1d_19790101_20161231_ERAI.nc*
 #-rwxr-xr-x 1 page globc 1.6G Sep 22 16:02 ua500_1d_19790101_20161231_ERAI.nc*
 #-rwxr-xr-x 1 page globc 1.6G Sep 22 16:02 va500_1d_19790101_20161231_ERAI.nc*
@@ -31,7 +31,7 @@ do
 filename=${i}_${inc}_${period}_${model}.nc
 
 rm -f results/$filename
-ncks -O -d time,1,365 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
+ncks -O -d time,0,3650 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
 if [ ! -s results/${outfile} ]
 then
   cp results/${filename} results/${outfile}
@@ -48,7 +48,7 @@ do
 filename=${i}_${inc}_${period}_${model}.nc
 
 rm -f results/$filename
-ncks -O -d time,1,365 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
+ncks -O -d time,0,3650 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
 if [ ! -s results/${outfile} ]
 then
   cp results/${filename} results/${outfile}
@@ -64,7 +64,7 @@ do
 filename=${i}_${inc}_${period}_${model}.nc
 
 rm -f results/$filename
-ncks -O -d time,1,365 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
+ncks -O -d time,0,3650 -d latitude,${latbox} -d longitude,${lonbox} ${filename} results/${filename}
 if [ ! -s results/${outfile} ]
 then
   cp results/${filename} results/${outfile}

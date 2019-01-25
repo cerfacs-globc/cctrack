@@ -331,6 +331,7 @@
       character*1024 outfile    ! Base pour les fichier de sorties
       character*1024 ofname1    ! Fichier de sortie #1
       character*1024 ofname2    ! Fichier de sortie #2
+      character*1024 configfile ! Fichier de configuration json
 
       integer iun01             ! Unite pour le fichier d'entree
       integer iun02             ! Unite pour le fichier d'entree orographie
@@ -411,13 +412,26 @@
       integer niext             ! Dimension de la grille etendue en x
       integer njext             ! Dimension de la grille etendue en y
 
+!     Variable de configuration des entrees
+      type :: config_type
+        character(len=:),allocatable :: generic_name
+        character(len=:),allocatable :: name
+        character(len=:),allocatable :: units_destination
+        real                         :: level
+        real                         :: scale
+        real                         :: offset
+      end type config_type
+      type(config_type), dimension(13) :: config
+      
+      integer nconfig, curn
       character*20 str
+      character*30 tmpstr
 
 !**********************************************************************
 !     Traitement des cles d'appel
 !**********************************************************************
       call get_options(SILENT, IP3, GETVAR,
-     $     INFILE, INFILE2, INFILE3, OUTFILE,
+     $     INFILE, INFILE2, INFILE3, OUTFILE, CONFIGFILE,
      $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
      $     ANALYSE, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
      $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
@@ -435,6 +449,11 @@
       iun51 = 51
       iun52 = 52
       iun60 = 60
+
+#ifdef NETCDF
+! Fichier de configuration JSON
+      call read_config(configfile, config, nconfig)
+#endif
 
 #ifndef NETCDF
       ofname1 = outfile(1:real_len(outfile))//'.fst' ! fichier sortie RPN
@@ -672,7 +691,13 @@ c     On evalue la distance entre les points de grille
          glbkeygz = get_dimgrille(ni, nj, iun01, 'GZ')
          call get_niv(nivhm, nkhm, glbkeygz, iun01)
 #else
-         call get_niv(nivhm, nkhm, 'zg', iun01)
+         call get_config(curn, config, "height", nconfig)
+         if (curn .gt. 0) then
+            tmpstr = config(curn)%name
+         else
+            tmpstr = "zg"
+         endif
+         call get_niv(nivhm, nkhm, tmpstr, iun01)
 #endif
          
          print*
@@ -727,7 +752,9 @@ c     On evalue la distance entre les points de grille
          ier = nf_inq_varid(iun01, 'time', itimeid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, itimeid, 'standard_name', iun51, timeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            print*,"Warning: No standard_name attribute for time."
+         endif
          ier = nf_copy_att(iun01, itimeid, 'long_name', iun51, timeid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, itimeid, 'units', iun51, timeid)
@@ -738,7 +765,9 @@ c     On evalue la distance entre les points de grille
          ier = nf_inq_varid(iun01, 'latitude', ilatid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, ilatid, 'standard_name', iun51, latid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            print*,"Warning: No standard_name attribute for latitude."
+         endif
          ier = nf_copy_att(iun01, ilatid, 'long_name', iun51, latid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, ilatid, 'units', iun51, latid)
@@ -747,7 +776,9 @@ c     On evalue la distance entre les points de grille
          ier = nf_inq_varid(iun01, 'longitude', ilonid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, ilonid, 'standard_name', iun51, lonid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            print*,"Warning: No standard_name attribute for longitude."
+         endif
          ier = nf_copy_att(iun01, ilonid, 'long_name', iun51, lonid)
          if (ier .ne. nf_noerr) call handle_err(ier)
          ier = nf_copy_att(iun01, ilonid, 'units', iun51, lonid)
@@ -978,31 +1009,43 @@ c     On evalue la distance entre les points de grille
      $           ni,nj)
          endif
 #else
-         call read_field(PRESS,n,iun01,'psl',0.01,0,ni,nj) ! Pa converted to hPa
+         call get_config(curn, config, "mean_slp", nconfig)
+         call read_field(PRESS,n,iun01,
+     $        config(curn)%name, config(curn)%scale, config(curn)%level,ni,nj) ! Pa converted to hPa
 
          if (tropic .lt. 0 .and. phase .lt. 0) then
-            call read_field(H,n,iun01,'zg1000',0.1/9.80655,level, ! m converted to geopot height and dam
+            call get_config(curn, config, "height_1000", nconfig)
+            call read_field(H,n,iun01,
+     $           config(curn)%name, config(curn)%scale, config(curn)%level, ! m converted to geopot height and dam
      $           ni,nj)
          else
-            call read_field(work1,n,iun01,'zg',0.1/9.80655,250, ! m converted to geopot height and dam
+            call get_config(curn, config, "height_250", nconfig)
+            call read_field(work1,n,iun01,
+     $           config(curn)%name, config(curn)%scale, config(curn)%level, ! m converted to geopot height and dam
      $           ni,nj)
-            call read_field(work2,n,iun01,'zg',0.1/9.80655,850, ! m converted to geopot height and dam
+            call get_config(curn, config, "height_850", nconfig)
+            call read_field(work2,n,iun01,
+     $           config(curn)%name, config(curn)%scale, config(curn)%level, ! m converted to geopot height and dam
      $           ni,nj)
             H(:,:)  = work1(:,:) - work2(:,:) ! 250-850 hPa (dam)
 
-            call interpolv(h3d, work1, work2, 'zg', n, iun01, 0.1/9.80655,
+            call interpolv(h3d, work1, work2, config(curn)%name, n, iun01, config(curn)%scale,
      $           nivh, nkh, nivhm, nkhm, ni, nj) ! ! m converted to dam
             HL(:,:) = h3d(:,:,7) - h3d(:,:,nkh) ! 600-900 hPa (dam)
 
-            call read_field(work1,n,iun01,'uas',1.0/K_UVCT,slevel, ! m/s converted to knots
+            call get_config(curn, config, "u_sfc", nconfig)
+            call read_field(work1,n,iun01, config(curn)%name, config(curn)%scale, config(curn)%level, ! m/s converted to knots
      $           ni,nj)
-            call read_field(work2,n,iun01,'vas',1.0/K_UVCT,slevel, ! m/s converted to knots
+            call get_config(curn, config, "v_sfc", nconfig)
+            call read_field(work2,n,iun01, config(curn)%name, config(curn)%scale, config(curn)%level, ! m/s converted to knots
      $           ni,nj)
             WINDSPD(:,:) = sqrt( work1(:,:)**2 + work2(:,:)**2 ) 
 
-            call read_field(work1,n,iun01,'ua',1.0,850, ! m/s
+            call get_config(curn, config, "u_850", nconfig)
+            call read_field(work1,n,iun01, config(curn)%name, config(curn)%scale, config(curn)%level, ! m/s
      $           ni,nj)
-            call read_field(work2,n,iun01,'va',1.0,850, ! m/s
+            call get_config(curn, config, "v_850", nconfig)
+            call read_field(work2,n,iun01, config(curn)%name, config(curn)%scale, config(curn)%level, ! m/s
      $           ni,nj)
          endif
 #endif         
@@ -1011,14 +1054,16 @@ c     On evalue la distance entre les points de grille
 !     de deplacement des cyclones. On prend la moitie du vent
 !     a 500 hPa
 #ifndef NETCDF
-         call read_field(U,n,iun01,'ua',(K_UVCT/2.0),500, ! m/s
+         call read_field(work1,tstamp(n),iun01,'UU',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
-         call read_field(V,n,iun01,'va',(K_UVCT/2.0),500, ! m/s
+         call read_field(work2,tstamp(n),iun01,'VV',(K_UVCT/2.0),500, ! m/s
      $        ni,nj)
 #else
-         call read_field(U,n,iun01,'ua500',0.5,500, ! m/s
+         call get_config(curn, config, "u_500", nconfig)
+         call read_field(U,n,iun01, config(curn)%name, 0.5, config(curn)%level, ! m/s
      $        ni,nj)
-         call read_field(V,n,iun01,'va500',0.5,500, ! m/s
+         call get_config(curn, config, "v_500", nconfig)
+         call read_field(V,n,iun01, config(curn)%name, 0.5, config(curn)%level, ! m/s
      $        ni,nj)
 #endif
 
@@ -1915,7 +1960,7 @@ c######################################################################
 !---- Sous-routine pour la lecture des options
 !***********************************************************************
       subroutine get_options(SILENT, IP3, GETVAR,
-     $     INFILE, INFILE2, INFILE3, OUTFILE,
+     $     INFILE, INFILE2, INFILE3, OUTFILE, CONFIGFILE,
      $     NPT, DIST_CRIT, LEVEL, FVORT, VC, ANTICYCL, VORTCNT,
      $     ANALYSE, TROPIC, NOFST, FPRES, TCRAD, HCRIT, TDWIND,
      $     PHASE, BCRIT, LATMIN, LATMAX, LONMIN, LONMAX, RELOCP,
@@ -1938,12 +1983,13 @@ c######################################################################
       character*256 getvar
 #endif
       character*1024 infile, infile2, infile3, outfile
+      character*1024 configfile
 
       integer ier
       integer fstopc
 
       integer narg
-      parameter (narg=30)
+      parameter (narg=31)
 
       character *12 cle(narg)
       character *1024 def(narg),val(narg) 
@@ -1954,21 +2000,21 @@ c######################################################################
      $     'vc','analyse','tropic','nofst','fpres','tcrad',
      $     'hcrit','tdwind','phase','bcrit',
      $     'latmin','latmax','lonmin','lonmax','relocp',
-     $     'onlywarm','output_type.'/
+     $     'onlywarm','output_type.','configfile'/
 !     - valeurs des cles si NON mentionnees a l'appel
       data val /'scrap','scrap','scrap','scrap','-1','-1',' ','-1',
      $     '-1.','-1','-1','-1','-1',
      $     '-1.','-1','-1','-1','-1','-1',
      $     '-1','-1','-1','-1',
      $     '-1','-1','-1','-1','-1',
-     $     '-1','xml'/
+     $     '-1','xml','scrap'/
 !     - valeurs des cles si mentionnees a l'appel SANS valeurs
       data def /'scrap','scrap','scrap','scrap','0','0',' ','4',
      $     '3.75','1000','0','800','0',
      $     '2.5','0','0','0','300','200',
      $     '935','22','0','25',
      $     '-90','90','0','360','0',
-     $     '0','xml'/
+     $     '0','xml','scrap'/
 
 *-------------------------------------------------------------------
 
@@ -2019,6 +2065,8 @@ c######################################################################
       read (val(30),5) output_type
  5    format(a12)
 
+      read (val(31),4) configfile
+
       print*
       print*,' /////////////////////////////////////////////////////'
       print*,' > Make_Tracks v2.3                                  <'
@@ -2037,6 +2085,8 @@ c######################################################################
          print*
          print*,' -o        : fichier donnees de sortie contenant les'
          print*,'             resultats du calcul'
+         print*
+         print*,' -config   : fichier de configuration en format JSON'
          print*
          print*,' -npt      : Temps de vie minimum (en pas de temps) '
          print*,'             d une trajectoire '
@@ -2107,6 +2157,10 @@ c######################################################################
 !     
       if (val(4).eq.'scrap') then
          print*, " Valeurs par defaut: output  = scrap"
+      endif
+!     
+      if (val(31).eq.'scrap') then
+         print*, " Valeurs par defaut: config  = scrap"
       endif
 !     
       if (getvar.eq.' ') then

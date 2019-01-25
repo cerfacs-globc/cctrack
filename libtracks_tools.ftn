@@ -1643,22 +1643,26 @@ c***********************************************************************
       character*(*) nomvar
       integer datev, ni, nj
       real buffer(ni,nj), fm
+      integer, dimension (:,:), allocatable :: bufferint
+      integer*2, dimension (:,:), allocatable :: buffershort
 
       integer ier
       integer varid, vartype, ndims
       integer start(4), count(4)
 
       real scale_factor, add_offset
+      integer i, j
 
 c
 c     Expected dimensions order with ncdump for 2D matrix: float psl(time, lat, lon) !!is reversed!! in fortran
 c     If 3D matrix we have float ta(time, lev, lat, lon) !!is reversed!! in fortran
 c
+      print*,"NETCDF READING ",nomvar
+
       ier = nf_inq_varid(iun, nomvar, varid)
       if (ier .ne. nf_noerr) then
          call handle_err(ier)
       endif
-      print*,"NETCDF READ ",nomvar
 
       ier = nf_inq_vartype(iun, varid, vartype)
       if (ier .ne. nf_noerr) call handle_err(ier)
@@ -1666,7 +1670,7 @@ c
       ier = nf_inq_varndims(iun, varid, ndims)
       if (ier .ne. nf_noerr) call handle_err(ier)
 
-      if (vartype.eq.NF_FLOAT .and. (ndims.eq.3 .or. ndims.eq.4) ) then
+      if (ndims.eq.3 .or. ndims.eq.4) then
          start(1) = 1
          start(2) = 1
          if (ndims.eq.3) then
@@ -1683,7 +1687,32 @@ c
             count(3) = 1
             count(4) = 1
          endif
-         ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         if (vartype.eq.NF_FLOAT) then
+            ier = nf_get_vara_real(iun, varid, start, count, buffer)
+         else if (vartype.eq.NF_INT) then
+            allocate ( bufferint(ni,nj) )
+            ier = nf_get_vara_int(iun, varid, start, count, bufferint)
+            do j=1,nj
+               do i=1,ni
+                  buffer(i,j) = float(bufferint(i,j))
+               enddo
+            enddo
+            deallocate(bufferint)            
+         else if (vartype.eq.NF_SHORT) then
+            allocate ( buffershort(ni,nj) )
+            ier = nf_get_vara_int2(iun, varid, start, count, buffershort)
+            do j=1,nj
+               do i=1,ni
+                  buffer(i,j) = float(buffershort(i,j))
+               enddo
+            enddo
+            deallocate(buffershort)
+         else
+            print*
+            print*,"Le champ n'est pas de type float, int ou short... -> STOP !"
+            print*
+            stop
+         endif
          if (ier .ne. nf_noerr) call handle_err(ier)
 
 c     Apply offset and scale factor if provided
@@ -1700,7 +1729,7 @@ c     Apply offset and scale factor if provided
 
       else
          print*
-         print*,"Le champ n'est pas de type float et/ou n'est pas de dimension 3 ou 4... -> STOP !"
+         print*,"Le champ n'est pas de dimension 3 ou 4... -> STOP !"
          print*
          stop
       endif
@@ -3357,7 +3386,7 @@ c***********************************************************************
 
 !     ----------------------------------------------------------
 !     Ecrite par Christian Page                                -
-!     Novembre 2017                                               -
+!     Novembre 2017                                            -
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
@@ -3372,25 +3401,216 @@ c***********************************************************************
 c***********************************************************************
 c---- Fonction read_config : read configuration from json file
 c***********************************************************************
-      subroutine read_config(config_file)
+      subroutine read_config(config_file,config,nconfig)
 
-      use json_module
+      use json_module, only : json_file
+      use json_kinds, only: json_CK  => CK, json_RK  => RK
 
       implicit none
 
 !     ----------------------------------------------------------
 !     Ecrite par Christian Page                                -
-!     Novembre 2017                                               -
+!     Novembre 2017                                            -
 !     CERFACS                                                  -
 !     ---------------------------------------------------------- 
 
       character*(*) config_file
       type(json_file) :: json
       
-      ! initialize the class
-      call json%initialize()
+      type :: config_type
+        character(len=:),allocatable :: generic_name
+        character(len=:),allocatable :: name
+        character(len=:),allocatable :: units_destination
+        real                         :: level
+        real                         :: scale
+        real                         :: offset
+      end type config_type
 
-      !clean up
-      call json%destroy()      
+      type(config_type), dimension(13) :: config
+      character(kind=json_CK,len=:),allocatable :: strval
+      real(kind=json_RK) :: rval
+      integer n, nconfig
+      logical found
+      integer real_len
 
+      logical :: status_ok
+      character(kind=json_CK,len=:),allocatable :: error_msg
+
+      nconfig = 13
+
+      config(1)%generic_name = "mean_slp"
+      config(2)%generic_name = "height"
+      config(3)%generic_name = "height_1000"
+      config(4)%generic_name = "height_250"
+      config(5)%generic_name = "height_850"
+      config(6)%generic_name = "u_sfc"
+      config(7)%generic_name = "v_sfc"
+      config(8)%generic_name = "u"
+      config(9)%generic_name = "u_500"
+      config(10)%generic_name = "u_850"
+      config(11)%generic_name = "v"
+      config(12)%generic_name = "v_500"
+      config(13)%generic_name = "v_850"
+
+      if (config_file(1:real_len(config_file)) .ne. 'scrap') then
+
+!     initialize the class
+         call json%initialize()
+
+!     read the file
+         call json%load_file(filename = config_file(1:real_len(config_file)))
+!  dumps core if no error mdr
+!         call json%check_for_errors(status_ok, error_msg)
+!         if (.not. status_ok) then
+!            write(*,*) 'Error reading JSON file: '//error_msg
+!            call json%clear_exceptions()
+!            call json%destroy()
+!            stop 1
+!         end if
+
+!     print the file to the console
+         call json%print_file()
+
+!     extract data from the file into data structure
+         do n=1,nconfig
+            call json%get('input_variables.'//config(n)%generic_name//'.name', strval, found)
+            config(n)%name = strval
+            call json%get('input_variables.'//config(n)%generic_name//'.units_destination', strval, found)
+            config(n)%units_destination = strval
+            call json%get('input_variables.'//config(n)%generic_name//'.level', rval, found)
+            config(n)%level = rval
+            call json%get('input_variables.'//config(n)%generic_name//'.scale', rval, found)
+            config(n)%scale = rval
+            call json%get('input_variables.'//config(n)%generic_name//'..offset', rval, found)
+            config(n)%offset = rval
+         enddo
+         
+!     clean up
+         call json%destroy()      
+
+      else
+!
+! Default configuration if no config file is specified
+!
+         do n=1,nconfig
+            if (config(n)%generic_name .eq. "mean_slp") then
+               config(n)%name = "psl"
+               config(n)%units_destination = "hPa"
+               config(n)%level = -1
+               config(n)%scale = 0.01
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "height") then
+               config(n)%name = "zg"
+               config(n)%units_destination = "dam"
+               config(n)%level = -99
+               config(n)%scale = 0.01019716213
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "height_1000") then
+               config(n)%name = "zg1000"
+               config(n)%units_destination = "dam"
+               config(n)%level = -1
+               config(n)%scale = 0.01019716213
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "height_250") then
+               config(n)%name = "zg"
+               config(n)%units_destination = "dam"
+               config(n)%level = 250
+               config(n)%scale = 0.01019716213
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "height_850") then
+               config(n)%name = "zg"
+               config(n)%units_destination = "dam"
+               config(n)%level = 850
+               config(n)%scale = 0.01019716213
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "u_sfc") then
+               config(n)%name = "uas"
+               config(n)%units_destination = "knots"
+               config(n)%level = -1
+               config(n)%scale = 1.9428397128
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "v_sfc") then
+               config(n)%name = "vas"
+               config(n)%units_destination = "knots"
+               config(n)%level = -1
+               config(n)%scale = 1.9428397128
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "u") then
+               config(n)%name = "ua"
+               config(n)%units_destination = "m/s"
+               config(n)%level = -1
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "u_500") then
+               config(n)%name = "ua500"
+               config(n)%units_destination = "m/s"
+               config(n)%level = -1
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "u_850") then
+               config(n)%name = "ua"
+               config(n)%units_destination = "m/s"
+               config(n)%level = 850
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "v") then
+               config(n)%name = "va"
+               config(n)%units_destination = "m/s"
+               config(n)%level = -99
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "v_500") then
+               config(n)%name = "va500"
+               config(n)%units_destination = "m/s"
+               config(n)%level = -1
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else if (config(n)%generic_name .eq. "v_850") then
+               config(n)%name = "va"
+               config(n)%units_destination = "m/s"
+               config(n)%level = 850
+               config(n)%scale = 1.0
+               config(n)%offset = 0.0
+            else
+               print*
+               print*,"Error unknown config generic_name...:", config(n)%generic_name
+               print*
+               stop
+            endif
+         enddo
+
+      endif
+
+      
       end subroutine read_config
+
+      subroutine get_config(num, config, name, nconfig)
+      implicit none
+
+      integer num, nconfig
+      character*(*) name
+      
+      type :: config_type
+        character(len=:),allocatable :: generic_name
+        character(len=:),allocatable :: name
+        character(len=:),allocatable :: units_destination
+        real                         :: level
+        real                         :: scale
+        real                         :: offset
+      end type config_type
+
+      type(config_type), dimension(nconfig) :: config
+
+      integer n
+
+      num = 0
+      n = 1
+
+      do while (num .eq. 0 .and. n .le. nconfig)
+         if (config(n)%generic_name .eq. name) then
+            num = n
+         end if
+         n = n + 1
+      end do
+
+      end subroutine get_config
