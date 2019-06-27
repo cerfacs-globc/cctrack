@@ -572,13 +572,11 @@ c
       if (ier .ne. nf_noerr) call handle_err(ier)
       print*, 'gdll: READ longitude successful'
 
-c     Wrap longitudes to negative if the 0 deg is within the domain.
-c     We must have a continuously increasing values for the algorithm to work.
-
+c     Wrap longitudes to positive (no negative values) if the 0 deg is within the domain.
       wrap = .false.
-      do i=2,ni
+      do i=1,ni
 c     If we have non-increasing longitudes, we assume we have 359 then 0.
-         if (lon1d(i).lt.lon1d(i-1)) then
+         if (lon1d(i).lt.0.0) then
             wrap = .true.
             exit
          endif
@@ -586,8 +584,8 @@ c     If we have non-increasing longitudes, we assume we have 359 then 0.
       if (wrap .eqv. .true.) then
 c     If longitude is greater than last one, must wrap it by 360 deg.
          do i=1,ni
-            if (lon1d(i).gt.lon1d(ni)) then
-               lon1d(i) = lon1d(i) - 360.0
+            if (lon1d(i).lt.0.0) then
+               lon1d(i) = lon1d(i) + 360.0
             endif
          enddo
       endif
