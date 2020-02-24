@@ -427,6 +427,8 @@
       character*20 str
       character*30 tmpstr
 
+      character*256 strerr
+
 !**********************************************************************
 !     Traitement des cles d'appel
 !**********************************************************************
@@ -479,18 +481,30 @@
 #else
 !     Ouverture fichier input NETCDF
       ier = nf_open(infile(1:real_len(infile)), NF_NOWRITE, iun01)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error opening NetCDF input file: ',infile(1:real_len(infile))
+         call handle_err(ier,strerr)
+      endif
 !     Ouverture fichier input NETCDF orographie
       ier = nf_open(infile2(1:real_len(infile2)), NF_NOWRITE, iun02)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error opening NetCDF input file 2: ',infile2(1:real_len(infile2))
+         call handle_err(ier,strerr)
+      endif
 !     Ouverture fichier input NETCDF masque terre-mer
       ier = nf_open(infile3(1:real_len(infile3)), NF_NOWRITE, iun03)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error opening NetCDF input file 3: ',infile3(1:real_len(infile3))
+         call handle_err(ier,strerr)
+      endif
 
       if (nofst.ne.0) then
 !     Ouverture fichier output NetCDF
          ier = nf_create(ofname1, OR(NF_CLASSIC_MODEL, NF_NETCDF4), iun51)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error opening NetCDF output file: ',ofname1(1:real_len(ofname1))
+            call handle_err(ier,strerr)
+         endif
       endif
 #endif
       
@@ -524,12 +538,20 @@
          attvalue = "CF-1.6"
          ier = nf_put_att_text(iun51, NF_GLOBAL, attname, real_len(attvalue),
      $        attvalue(1:real_len(attvalue)))
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error writing NetCDF attribute to output file ',
+     $           ofname1(1:real_len(ofname1)),' : ',attname,'=',attvalue(1:real_len(attvalue))
+            call handle_err(ier,strerr)
+         endif
          attname = "title"
          attvalue = "Sinclair Tracking diagnostic file"
          ier = nf_put_att_text(iun51, NF_GLOBAL, attname, real_len(attvalue),
      $        attvalue(1:real_len(attvalue)))
-         if (ier .ne. nf_noerr) call handle_err(ier)      
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error writing NetCDF attribute to output file ',
+     $           ofname1(1:real_len(ofname1)), ' : ',attname,'=',attvalue(1:real_len(attvalue))
+            call handle_err(ier,strerr)
+         endif
       endif
 #endif
       
@@ -657,9 +679,17 @@ c     On evalue la distance entre les points de grille
 
 #ifdef NETCDF
       ier = nf_def_dim(iun51, 'longitudeext', niext, lonextdimid)
-      if (ier .ne. nf_noerr) call handle_err(ier)      
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error defining NetCDF dimension in output file ',
+     $        ofname1(1:real_len(ofname1)), ' : longitudeext'
+         call handle_err(ier,strerr)
+      endif
       ier = nf_def_dim(iun51, 'latitudeext', njext, latextdimid)
-      if (ier .ne. nf_noerr) call handle_err(ier)      
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error defining NetCDF dimension in output file ',
+     $        ofname1(1:real_len(ofname1)), ' : latitudeext'
+         call handle_err(ier,strerr)
+      endif
 #endif
 
 !**********************************************************************
@@ -728,65 +758,137 @@ c     On evalue la distance entre les points de grille
 
 ! Dimensions
          ier = nf_def_dim(iun51, 'longitude', ni, londimid)
-         if (ier .ne. nf_noerr) call handle_err(ier)      
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF dimension in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : longitude'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_def_dim(iun51, 'latitude', nj, latdimid)
-         if (ier .ne. nf_noerr) call handle_err(ier)      
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF dimension in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : latitude'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_def_dim(iun51, 'time', NF_UNLIMITED, timedimid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF dimension in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : time'
+            call handle_err(ier,strerr)
+         endif
 
 ! Define dimension variables
          rhdims(1) = timedimid
          ier = nf_def_var(iun51, 'time', nf_double, 1, rhdims, timeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF variable in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : time'
+            call handle_err(ier,strerr)
+         endif
 
          rhdims(1) = londimid
          rhdims(2) = latdimid
          ier = nf_def_var(iun51, 'longitude', nf_float, 2, rhdims, lonid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF variable in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : longitude'
+            call handle_err(ier,strerr)
+         endif
          rhdims(1) = londimid
          rhdims(2) = latdimid
          ier = nf_def_var(iun51, 'latitude', nf_float, 2, rhdims, latid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error defining NetCDF variable in output file ',
+     $           ofname1(1:real_len(ofname1)), ' : latitude'
+            call handle_err(ier,strerr)
+         endif
 
 ! Copy CF attributes from input file         
          ier = nf_inq_varid(iun01, 'time', itimeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error getting NetCDF variable ID in input file ',
+     $           infile(1:real_len(infile)),' : time'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, itimeid, 'standard_name', iun51, timeid)
          if (ier .ne. nf_noerr) then
-            print*,"Warning: No standard_name attribute for time."
+            print*,"Warning: No standard_name attribute for time for variable time."
          endif
          ier = nf_copy_att(iun01, itimeid, 'long_name', iun51, timeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',infile(1:real_len(infile)),
+     $           ' to output file ', ofname1(1:real_len(ofname1)), ' for variable time: long_name'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, itimeid, 'units', iun51, timeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',infile(1:real_len(infile)),
+     $           ' to output file ',ofname1(1:real_len(ofname1)),' for variable time: units'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, itimeid, 'calendar', iun51, timeid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',infile(1:real_len(infile)),
+     $           ' to output file ',ofname1(1:real_len(ofname1)),' for variable time: calendar'
+            call handle_err(ier,strerr)
+         endif
 
          ier = nf_inq_varid(iun01, 'latitude', ilatid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error getting NetCDF variable ID in input file ',
+     $           infile(1:real_len(infile)),' : latitude'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, ilatid, 'standard_name', iun51, latid)
          if (ier .ne. nf_noerr) then
             print*,"Warning: No standard_name attribute for latitude."
          endif
          ier = nf_copy_att(iun01, ilatid, 'long_name', iun51, latid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',
+     $           infile(1:real_len(infile)),' to output file ',
+     $           ofname1(1:real_len(ofname1)), ' for variable latitude: long_name'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, ilatid, 'units', iun51, latid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',
+     $           infile(1:real_len(infile)),' to output file ',
+     $           ofname1(1:real_len(ofname1)), ' for variable latitude: units'
+            call handle_err(ier,strerr)
+         endif
 
          ier = nf_inq_varid(iun01, 'longitude', ilonid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error getting NetCDF variable ID in input file ',
+     $           infile(1:real_len(infile)),' : longitude'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, ilonid, 'standard_name', iun51, lonid)
          if (ier .ne. nf_noerr) then
             print*,"Warning: No standard_name attribute for longitude."
          endif
          ier = nf_copy_att(iun01, ilonid, 'long_name', iun51, lonid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',
+     $           infile(1:real_len(infile)),' to output file ',
+     $           ofname1(1:real_len(ofname1)), ' for variable longitude: long_name'
+            call handle_err(ier,strerr)
+         endif
          ier = nf_copy_att(iun01, ilonid, 'units', iun51, lonid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error copying NetCDF attribute ID from input file ',
+     $           infile(1:real_len(infile)),' to output file ',
+     $           ofname1(1:real_len(ofname1)), ' for variable longitude: units'
+            call handle_err(ier,strerr)
+         endif
 
 ! End define mode
          ier = nf_enddef(iun51)
-         if (ier .ne. nf_noerr) call handle_err(ier)      
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error closing NetCDF definition mode for output file ',
+     $           ofname1(1:real_len(ofname1))
+            call handle_err(ier,strerr)
+         endif
 
 ! Write dimension variables
          wstart(1) = 1
@@ -794,17 +896,29 @@ c     On evalue la distance entre les points de grille
 
          wcount(1) = ntimes
          ier = nf_put_vara_double(iun51, timeid, wstart, wcount, tstamp)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error cannot write time variable to output file ',
+     $           ofname1(1:real_len(ofname1))
+            call handle_err(ier,strerr)
+         endif
 
          wcount(1) = ni
          wcount(2) = nj
          ier = nf_put_vara_real(iun51, lonid, wstart, wcount, lon)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error cannot write longitude variable to output file ',
+     $           ofname1(1:real_len(ofname1))
+            call handle_err(ier,strerr)
+         endif
 
          wcount(1) = ni
          wcount(2) = nj
          ier = nf_put_vara_real(iun51, latid, wstart, wcount, lat)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'Error cannot write latitude variable to output file ',
+     $           ofname1(1:real_len(ofname1))
+            call handle_err(ier,strerr)
+         endif
       endif
 
       call ecrit_nc(iun51, delta_x, 'delta_x', 1, 1,
@@ -1891,7 +2005,11 @@ c     On evalue la distance entre les points de grille
       endif
 #else
       ier = nf_close(iun01)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'Error cannot close NetCDF input file ',
+     $        infile(1:real_len(infile))
+         call handle_err(ier,strerr)
+      endif
 #endif
       if ( trim(output_type) == 'xml' ) then
          write(iun52,'(a)') "</tracks>"

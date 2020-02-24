@@ -396,12 +396,17 @@ c***********************************************************************
       integer rhdims(3), start(3), count(3)
       integer varid, ndims
 
+      character*256 strerr
+
 c     Define variable in header if needed
       ier = nf_inq_varid(iun, nomvar, varid)
       if (ier .ne. nf_noerr) then
 c     Variable does not already exists, must create it
          ier = nf_redef(iun)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'ecrit_nc: Cannot go into NetCDF redefine mode for output file ID:',iun
+            call handle_err(ier,strerr)
+         endif
          rhdims(1) = londimid
          rhdims(2) = latdimid
          if (nt .gt. 1) then
@@ -411,9 +416,15 @@ c     Variable does not already exists, must create it
             ndims = 2
          endif
          ier = nf_def_var(iun, nomvar, nf_float, ndims, rhdims, varid)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'ecrit_nc: Cannot define NetCDF variable:',nomvar,' number of dimensions:',ndims
+            call handle_err(ier,strerr)
+         endif
          ier = nf_enddef(iun)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'ecrit_nc: Cannot close NetCDF redefine mode for output file ID:',iun
+            call handle_err(ier,strerr)
+         endif
       endif
 
 c     Write variable onto disk
@@ -426,7 +437,10 @@ c     Write variable onto disk
          count(3) = 1
       endif
       ier = nf_put_vara_real(iun, varid, start, count, buffer)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'ecrit_nc: Cannot write NetCDF variable ',nomvar,' in output file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       return
       end
@@ -805,6 +819,7 @@ c***********************************************************************
       integer nomvarid, ndims, dimids(NF_MAX_VAR_DIMS)
 
       character*256 tunits
+      character*256 strerr
 
       integer i, k, cmcstamp, curdate, curhour, nnincr, t
 
@@ -812,19 +827,37 @@ c***********************************************************************
 
 c     Get ID of nomvar time
       ier = nf_inq_varid(iun, trim(nomvar), nomvarid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_times: Cannot get NetCDF variable ID: ',
+     $        trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 c     Get Dimension ID of time
       ier = nf_inq_vardimid(iun, nomvarid, dimids)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_times: Cannot get NetCDF dimensions ID of variable: ',
+     $        trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 c     Get Time Units
       ier = nf_get_att_text(iun, nomvarid, "units", tunits)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_times: Cannot get NetCDF attribute units of variable: ',
+     $        trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 c     Get number of time steps
       ier = nf_inq_dimlen(iun, dimids(1), ntimes)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_times: Cannot dimension length of variable: ',trim(nomvar)
+         call handle_err(ier,strerr)
+      endif
 c     Read times
       ier = nf_get_vara_double(iun, nomvarid, 1, ntimes, nstamp)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_times: Cannot read ',trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
       print*, 'get_times: READ ',nomvar,' successful'
       
       tunits = tunits(1:real_len(tunits))//char(0)
@@ -1558,6 +1591,7 @@ c***********************************************************************
       integer nk, iun
       integer niv(K_NIVMAX)
       character*256 nomvar
+      character*256 strerr
 
       integer varid, ndims, lev_varid
       integer dimids(NF_MAX_VAR_DIMS)
@@ -1566,10 +1600,18 @@ c***********************************************************************
       integer,allocatable,dimension (:) :: ibwork
 
       ier = nf_inq_varid(iun, nomvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_niv: Cannot get NetCDF variable ID: ',
+     $        trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_niv: Cannot get NetCDF number of dimensions of variable: ',
+     $        trim(nomvar),' NetCDF variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       if (ndims .ne. 4) then
          print*
@@ -1580,13 +1622,22 @@ c***********************************************************************
       
 c     Get Dimension IDs of vertical levels
       ier = nf_inq_vardimid(iun, lev_varid, dimids)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_niv: Cannot get NetCDF dimensions ID of vertical level from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 c     Get number of vertical levels, assuming the following dimension order: (time, lev, lat, lon) !reversed in fortran
       ier = nf_inq_dimlen(iun, dimids(3), nk)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_niv: Cannot dimension length of vertical level from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 c     Read vertical levels
       ier = nf_get_var_int(iun, dimids(3), niv)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_niv: Cannot read vertical level variable from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       if (nk.gt.0) then
          allocate(ibwork(nk))
@@ -1652,23 +1703,36 @@ c***********************************************************************
 
       real scale_factor, add_offset
       integer i, j
+      character*256 strerr
+
+      integer real_len
 
 c
 c     Expected dimensions order with ncdump for 2D matrix: float psl(time, lat, lon) !!is reversed!! in fortran
 c     If 3D matrix we have float ta(time, lev, lat, lon) !!is reversed!! in fortran
 c
-      print*,"NETCDF READING ",nomvar
+      print*,"NETCDF READING VARIABLE=",nomvar
 
       ier = nf_inq_varid(iun, nomvar, varid)
       if (ier .ne. nf_noerr) then
-         call handle_err(ier)
+         write(strerr,*) 'read_field: Cannot read variable ID of variable: ',
+     $        nomvar(1:real_len(nomvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
       endif
 
       ier = nf_inq_vartype(iun, varid, vartype)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'read_field: Cannot read variable type of variable: ',
+     $        nomvar(1:real_len(nomvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'read_field: Cannot read number of dimensions of variable: ',
+     $        nomvar(1:real_len(nomvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       if (ndims.eq.3 .or. ndims.eq.4) then
          start(1) = 1
@@ -1713,7 +1777,11 @@ c
             print*
             stop
          endif
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'read_field: Cannot read variable: ',
+     $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
+            call handle_err(ier,strerr)
+         endif
 
 c     Apply offset and scale factor if provided
          ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
@@ -1791,6 +1859,9 @@ c***********************************************************************
       integer vartype, ndims
       integer start(3), count(3)
 
+      character*256 strerr
+      integer real_len
+
 c
 c     Expected dimensions order with ncdump for 2D matrix: float orog(lat, lon) !!is reversed!! in fortran
 c
@@ -1805,10 +1876,18 @@ c
       else
          
          ier = nf_inq_vartype(iun, varid, vartype)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'read_orog: Cannot read variable type of variable:',
+     $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
+            call handle_err(ier,strerr)
+         endif
          
          ier = nf_inq_varndims(iun, varid, ndims)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'read_orog: Cannot read number of dimensions of variable:',
+     $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
+            call handle_err(ier,strerr)
+         endif
          
          if (vartype.eq.NF_FLOAT) then
             if (ndims .eq. 3) then
@@ -1984,6 +2063,9 @@ c
       integer varid, vartype, ndims
       integer start(2), count(2)
 
+      character*256 strerr
+      integer real_len
+
 c
 c     Expected dimensions order with ncdump for 2D matrix: float landsea(lat, lon) !!is reversed!! in fortran
 c
@@ -1999,10 +2081,18 @@ c
       else
 
          ier = nf_inq_vartype(iun, varid, vartype)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'read_landsea: Cannot read variable type of variable:',
+     $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
+            call handle_err(ier,strerr)
+         endif
          
          ier = nf_inq_varndims(iun, varid, ndims)
-         if (ier .ne. nf_noerr) call handle_err(ier)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'read_landsea: Cannot read number of dimensions of variable:',
+     $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
+            call handle_err(ier,strerr)
+         endif
          
          if (vartype.eq.NF_FLOAT .and. ndims.eq.2) then
             start(1) = 1
@@ -3075,14 +3165,24 @@ c***********************************************************************
       integer dimids(NF_MAX_VAR_DIMS)
       character*(NF_MAX_NAME) latname, lonname
 
+      character*256 strerr
+
 c
 c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
 c     
       ier = nf_inq_varid(iun, getvar, varid)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get variable ID of variable:',
+     $        getvar(1:real_len(getvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot number of dimensions of variable:',
+     $        getvar(1:real_len(getvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       if (ndims .ne. 3) then
          print*
@@ -3093,17 +3193,35 @@ c
       endif
 
       ier = nf_inq_vardimid(iun, varid, dimids)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get dimensions ID of variable:',
+     $        getvar(1:real_len(getvar)),' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       ier = nf_inq_dimname(iun, dimids(2), latname)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get dimension name of dimensions 2 from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
       ier = nf_inq_dimlen(iun, dimids(2), nj)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get dimension length of dimensions:',
+     $        latname,' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       ier = nf_inq_dimname(iun, dimids(1), lonname)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get dimension name of dimensions 1 from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
       ier = nf_inq_dimlen(iun, dimids(1), ni)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'get_dimgrille: Cannot get dimension length of dimensions:',
+     $        lonname,' from input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       print*
       print*,'Dimension ',lonname(1:real_len(lonname)),' ni=',ni,' and ',
@@ -3358,7 +3476,7 @@ c     ni     dimension des vecteurs
 c***********************************************************************
 c---- Sous-routine HANDLE_ERROR                                     ----
 c***********************************************************************
-      subroutine handle_err(error_code)
+      subroutine handle_err(error_code, strerr)
       implicit none
       include 'netcdf.inc'
 
@@ -3369,8 +3487,10 @@ c***********************************************************************
 !     ---------------------------------------------------------- 
 
       integer error_code
+      character*(*) strerr
 
       print *, 'Error: ', nf_strerror(error_code)
+      print *, strerr
 !     stop 2
       call abort
 
@@ -3396,6 +3516,26 @@ c***********************************************************************
       str = adjustl(str)
 
       end function str
+
+*     
+c***********************************************************************
+c---- Fonction str !     "Convert a real to string."
+c***********************************************************************
+      character(len=20) function strr(k)
+      implicit none
+
+!     ----------------------------------------------------------
+!     Ecrite par Christian Page                                -
+!     February 2020                                            -
+!     CERFACS                                                  -
+!     ---------------------------------------------------------- 
+
+      real, intent(in) :: k
+
+      write (strr, *) k
+      strr = adjustl(strr)
+
+      end function strr
       
 *     
 c***********************************************************************
@@ -3432,6 +3572,7 @@ c***********************************************************************
       integer n, nconfig
       logical found
       integer real_len
+      character*20 strr
 
       logical :: status_ok
       character(kind=json_CK,len=:),allocatable :: error_msg
@@ -3473,16 +3614,23 @@ c***********************************************************************
 
 !     extract data from the file into data structure
          do n=1,nconfig
+            print*,'Config number: ',n
+            print*,'generic_name: ',config(n)%generic_name
             call json%get('input_variables.'//config(n)%generic_name//'.name', strval, found)
             config(n)%name = strval
+            print*,'name: ',strval
             call json%get('input_variables.'//config(n)%generic_name//'.units_destination', strval, found)
             config(n)%units_destination = strval
+            print*,'units_destination: ',strval
             call json%get('input_variables.'//config(n)%generic_name//'.level', rval, found)
             config(n)%level = rval
+            print*,'level: ',rval
             call json%get('input_variables.'//config(n)%generic_name//'.scale', rval, found)
             config(n)%scale = rval
-            call json%get('input_variables.'//config(n)%generic_name//'..offset', rval, found)
+            print*,'scale: ',rval
+            call json%get('input_variables.'//config(n)%generic_name//'.offset', rval, found)
             config(n)%offset = rval
+            print*,'offset: ',rval
          enddo
          
 !     clean up
@@ -3492,7 +3640,9 @@ c***********************************************************************
 !
 ! Default configuration if no config file is specified
 !
+         print*,'ONLY DEFAULT VALUES'
          do n=1,nconfig
+            print*,'Config number: ',n
             if (config(n)%generic_name .eq. "mean_slp") then
                config(n)%name = "psl"
                config(n)%units_destination = "hPa"
@@ -3577,6 +3727,12 @@ c***********************************************************************
                print*
                stop
             endif
+            print*,'generic_name: ',config(n)%generic_name
+            print*,'name: ',config(n)%name
+            print*,'units_destination: ',config(n)%units_destination
+            print*,'level: ',strr(config(n)%level)
+            print*,'scale: ',strr(config(n)%scale)
+            print*,'offset: ',strr(config(n)%offset)
          enddo
 
       endif
@@ -3612,5 +3768,20 @@ c***********************************************************************
          end if
          n = n + 1
       end do
+
+      if (num .eq. 0) then
+         print*,'WARNING: configuration name not found!! name: ',
+     $        name, ' Number of configurations: ',nconfig
+         print*,'Dumping configuration structure'
+         do n=1,nconfig
+            print*,'Config number: ',n
+            print*,'generic_name: ',config(n)%generic_name
+            print*,'name: ',config(n)%name
+            print*,'units_destination: ',config(n)%units_destination
+            print*,'level: ',config(n)%level
+            print*,'scale: ',config(n)%scale
+            print*,'offset: ',config(n)%offset
+         enddo
+      endif
 
       end subroutine get_config

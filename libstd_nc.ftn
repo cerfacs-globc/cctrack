@@ -168,13 +168,13 @@ c*
 
       integer ncles, npos
       character*(*) cles(ncles), def(ncles), val(ncles)
-      character*80 cle_up(max_n)
+      character*1024 cle_up(max_n)
 
       integer argc, arg_num, count, iargc, keynum, keynum2, noval
-      character*80 argv(max_n), argp, clep, clep2
+      character*1024 argv(max_n), argp, clep, clep2
 
       integer dummy_len
-      character*80 dummy
+      character*1024 dummy
 
       integer real_len
 
@@ -320,7 +320,7 @@ c* Subroutine to show help message
 
       integer ncles, count, len, real_len
       character*(*) cles(ncles), def(ncles)
-      character*80 temp, temp2
+      character*1024 temp, temp2
 
       print*
       print*
@@ -539,8 +539,13 @@ c***********************************************************************
       real, dimension (:), allocatable :: lat1d
       real, dimension (:), allocatable :: lon1d
 
+      character*256 strerr
+
       ier = nf_inq_varndims(iun, varid, ndims)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire variable number of dimensions. Input file ID:',iun
+         call handle_err(ier,strerr)
+      endif
 
       if (ndims .ne. 3) then
          print*
@@ -554,11 +559,19 @@ c
 c     Expected dimensions order with ncdump: float psl(time, lat, lon) !!is reversed!! in fortran
 c     
       ier = nf_inq_vardimid(iun, varid, dimids)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire variable dimension ID. Input file ID:',iun,
+     $        ' Variable ID:',varid
+         call handle_err(ier,strerr)
+      endif
 
       allocate ( lat1d(nj) )
       ier = nf_get_var_real(iun, dimids(2), lat1d)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $        ' Variable: latitude'
+         call handle_err(ier,strerr)
+      endif
       print*, 'gdll: READ latitude successful'
 
       do j=1,nj
@@ -569,7 +582,11 @@ c
       
       allocate ( lon1d(ni) )
       ier = nf_get_var_real(iun, dimids(1), lon1d)
-      if (ier .ne. nf_noerr) call handle_err(ier)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $        ' Variable: longitude'
+         call handle_err(ier,strerr)
+      endif
       print*, 'gdll: READ longitude successful'
 
 c     Wrap longitudes to positive (no negative values) if the 0 deg is within the domain.
