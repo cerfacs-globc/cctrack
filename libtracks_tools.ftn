@@ -3577,6 +3577,8 @@ c***********************************************************************
       logical :: status_ok
       character(kind=json_CK,len=:),allocatable :: error_msg
 
+      logical :: file_exists
+
       nconfig = 13
 
       config(1)%generic_name = "mean_slp"
@@ -3595,6 +3597,16 @@ c***********************************************************************
 
       if (config_file(1:real_len(config_file)) .ne. 'scrap') then
 
+         inquire(FILE=config_file(1:real_len(config_file)), EXIST=file_exists)
+         if (file_exists .eqv. .FALSE.) then
+            print*,'** read_config:: WARNING: Configuration file specified in arguments does not exist: ',
+     $           config_file(1:real_len(config_file))
+            print*,'** Aborting execution'
+            stop
+         else
+            print*,'** read_config:: Using following config file: ',config_file(1:real_len(config_file))
+         endif
+
 !     initialize the class
          call json%initialize()
 
@@ -3610,7 +3622,9 @@ c***********************************************************************
 !         end if
 
 !     print the file to the console
+         print*,'read_config:: Dumping json config file:'
          call json%print_file()
+         print*
 
 !     extract data from the file into data structure
          do n=1,nconfig
@@ -3640,7 +3654,7 @@ c***********************************************************************
 !
 ! Default configuration if no config file is specified
 !
-         print*,'ONLY DEFAULT VALUES'
+         print*,'** ONLY DEFAULT VALUES: CONFIG file not specified'
          do n=1,nconfig
             print*,'Config number: ',n
             if (config(n)%generic_name .eq. "mean_slp") then
