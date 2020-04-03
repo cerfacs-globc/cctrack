@@ -1,0 +1,7 @@
+https://b2drop.eudat.eu/s/iseyeocZzZseDCK/download psl_1d_19790101_20161231_ERAI.nc
+https://b2drop.eudat.eu/s/DscfqZqKzM6nHBn/download zg1000_1d_19790101_20161231_ERAI.nc
+https://b2drop.eudat.eu/s/mg2mqsLPTop476Z/download ua500_1d_19790101_20161231_ERAI.nc
+https://b2drop.eudat.eu/s/6LCox2SQfG7QxqT/download va500_1d_19790101_20161231_ERAI.nc
+https://b2drop.eudat.eu/s/2cAHx6correNei6/download z_ERAI.nc
+https://b2drop.eudat.eu/s/6WzAW8kpcYkq4T3/download lsm_ERAI.nc
+
