@@ -1,4 +1,4 @@
-# Install script for directory: /scratch/globc/page/cyclone_tracking/json-fortran-6.9.0
+# Install script for directory: /data/home/globc/page/tracking/json-fortran-6.9.0
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -46,9 +46,9 @@ if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMP
     endif()
   endforeach()
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib" TYPE SHARED_LIBRARY FILES
-    "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.so.6.9.0"
-    "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.so.6.9"
-    "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.so"
+    "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.so.6.9.0"
+    "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.so.6.9"
+    "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.so"
     )
   foreach(file
       "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib/libjsonfortran.so.6.9.0"
@@ -65,18 +65,18 @@ if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMP
 endif()
 
 if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib" TYPE STATIC_LIBRARY FILES "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.a")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib" TYPE STATIC_LIBRARY FILES "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.a")
 endif()
 
 if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib" TYPE DIRECTORY FILES "/scratch/globc/page/cyclone_tracking/json-fortran/include/")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib" TYPE DIRECTORY FILES "/data/home/globc/page/tracking/json-fortran/include/")
 endif()
 
 if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
   if(EXISTS "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake")
     file(DIFFERENT EXPORT_FILE_CHANGED FILES
          "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake"
-         "/scratch/globc/page/cyclone_tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake")
+         "/data/home/globc/page/tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake")
     if(EXPORT_FILE_CHANGED)
       file(GLOB OLD_CONFIG_FILES "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets-*.cmake")
       if(OLD_CONFIG_FILES)
@@ -85,21 +85,21 @@ if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMP
       endif()
     endif()
   endif()
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake" TYPE FILE FILES "/scratch/globc/page/cyclone_tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake" TYPE FILE FILES "/data/home/globc/page/tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets.cmake")
   if("${CMAKE_INSTALL_CONFIG_NAME}" MATCHES "^([Rr][Ee][Ll][Ee][Aa][Ss][Ee])$")
-    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake" TYPE FILE FILES "/scratch/globc/page/cyclone_tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets-release.cmake")
+    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake" TYPE FILE FILES "/data/home/globc/page/tracking/json-fortran/CMakeFiles/Export/jsonfortran-gnu-6.9.0/cmake/jsonfortran-gnu-targets-release.cmake")
   endif()
 endif()
 
 if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/cmake" TYPE FILE FILES
-    "/scratch/globc/page/cyclone_tracking/json-fortran/pkg/jsonfortran-gnu-config.cmake"
-    "/scratch/globc/page/cyclone_tracking/json-fortran/jsonfortran-gnu-config-version.cmake"
+    "/data/home/globc/page/tracking/json-fortran/pkg/jsonfortran-gnu-config.cmake"
+    "/data/home/globc/page/tracking/json-fortran/jsonfortran-gnu-config-version.cmake"
     )
 endif()
 
 if("${CMAKE_INSTALL_COMPONENT}" STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib/pkgconfig" TYPE FILE FILES "/scratch/globc/page/cyclone_tracking/json-fortran/json-fortran.pc")
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/jsonfortran-gnu-6.9.0/lib/pkgconfig" TYPE FILE FILES "/data/home/globc/page/tracking/json-fortran/json-fortran.pc")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT)
@@ -110,5 +110,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/scratch/globc/page/cyclone_tracking/json-fortran/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/data/home/globc/page/tracking/json-fortran/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")

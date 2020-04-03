@@ -13,8 +13,8 @@ CC=gcc
 
 NETCDF=netcdf
 NETCDFF=netcdff
-OPTFLAGS=-g -fbounds-check -cpp -ffixed-line-length-132 -DNETCDF
-CFLAGS=-g
+OPTFLAGS=-g3 -fbounds-check -cpp -ffixed-line-length-132 -DNETCDF -fbacktrace -fsanitize=undefined -fsanitize=address -fsanitize=leak 
+CFLAGS=-g3 -fbounds-check -cpp -ffixed-line-length-132 -DNETCDF -fbacktrace -fsanitize=undefined -fsanitize=address -fsanitize=leak
 
 .SUFFIXES: .ftn
 

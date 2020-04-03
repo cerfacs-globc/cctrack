@@ -371,6 +371,7 @@
       character*256 attvalue
       integer rhdims(4)
       integer orogid, orogfid
+      character*(NF_MAX_NAME) latname, lonname
 #endif
 
       integer global            ! 0 = grille LAM, 1 = grille globale ou ni /= i
@@ -614,7 +615,7 @@
 #ifndef NETCDF
       ier = gdll(gdid, LAT, LON)
 #else
-      ier = gdll(LAT, LON, iun01, glbkey, ni, nj)
+      ier = gdll(LAT, LON, LATNAME, LONNAME, iun01, glbkey, ni, nj)
 #endif
 
 #ifndef NETCDF
@@ -832,7 +833,7 @@ c     On evalue la distance entre les points de grille
             call handle_err(ier,strerr)
          endif
 
-         ier = nf_inq_varid(iun01, 'latitude', ilatid)
+         ier = nf_inq_varid(iun01, latname, ilatid)
          if (ier .ne. nf_noerr) then
             write(strerr,*) 'Error getting NetCDF variable ID in input file ',
      $           infile(1:real_len(infile)),' : latitude'
@@ -857,7 +858,7 @@ c     On evalue la distance entre les points de grille
             call handle_err(ier,strerr)
          endif
 
-         ier = nf_inq_varid(iun01, 'longitude', ilonid)
+         ier = nf_inq_varid(iun01, lonname, ilonid)
          if (ier .ne. nf_noerr) then
             write(strerr,*) 'Error getting NetCDF variable ID in input file ',
      $           infile(1:real_len(infile)),' : longitude'

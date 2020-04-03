@@ -1,10 +1,10 @@
 # Adapted from http://www.cmake.org/Wiki/CMake_FAQ#Can_I_do_.22make_uninstall.22_with_CMake.3F May 1, 2014
 
-if(NOT EXISTS "/scratch/globc/page/cyclone_tracking/json-fortran/install_manifest.txt")
-  message(FATAL_ERROR "Cannot find install manifest: /scratch/globc/page/cyclone_tracking/json-fortran/install_manifest.txt")
-endif(NOT EXISTS "/scratch/globc/page/cyclone_tracking/json-fortran/install_manifest.txt")
+if(NOT EXISTS "/data/home/globc/page/tracking/json-fortran/install_manifest.txt")
+  message(FATAL_ERROR "Cannot find install manifest: /data/home/globc/page/tracking/json-fortran/install_manifest.txt")
+endif(NOT EXISTS "/data/home/globc/page/tracking/json-fortran/install_manifest.txt")
 
-file(READ "/scratch/globc/page/cyclone_tracking/json-fortran/install_manifest.txt" files)
+file(READ "/data/home/globc/page/tracking/json-fortran/install_manifest.txt" files)
 string(REGEX REPLACE "\n" ";" files "${files}")
 foreach(file ${files})
   message(STATUS "Uninstalling $ENV{DESTDIR}${file}")

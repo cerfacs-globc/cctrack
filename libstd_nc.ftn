@@ -512,7 +512,8 @@ c
 c***********************************************************************
 c---- Fonction GDLL                                                  ---
 c***********************************************************************
-      integer function gdll(lat, lon, iun, varid, ni, nj)
+      integer function gdll(lat, lon, latname, lonname,
+     $     iun, varid, ni, nj)
       implicit none
 
 !     ----------------------------------------------------------
@@ -531,13 +532,16 @@ c***********************************************************************
       integer ndims
       integer i, j
       logical wrap
-      integer dimids(NF_MAX_VAR_DIMS)
+      integer dimids(NF_MAX_VAR_DIMS), xtype
+      integer latid, lonid
 
       character*(NF_MAX_NAME) latname, lonname
       real lat(ni,nj), lon(ni,nj)
 
       real, dimension (:), allocatable :: lat1d
       real, dimension (:), allocatable :: lon1d
+      real*8, dimension (:), allocatable :: lat1dd
+      real*8, dimension (:), allocatable :: lon1dd
 
       character*256 strerr
 
@@ -564,58 +568,137 @@ c
      $        ' Variable ID:',varid
          call handle_err(ier,strerr)
       endif
-
-      allocate ( lat1d(nj) )
-      ier = nf_get_var_real(iun, dimids(2), lat1d)
+      ier = nf_inq_dimname(iun, dimids(2), latname)
       if (ier .ne. nf_noerr) then
-         write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
-     $        ' Variable: latitude'
+         write(strerr,*) 'gdll: Cannot inquire dimension name. Input file ID:',iun,
+     $        ' Dimension ID:',dimids(2)
          call handle_err(ier,strerr)
       endif
-      print*, 'gdll: READ latitude successful'
+      ier = nf_inq_varid(iun, latname, latid)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire dimension variable ID. Input file ID:',iun,
+     $        ' Dimension variable name:',latname
+         call handle_err(ier,strerr)
+      endif
+      ier = nf_inq_vartype(iun, latid, xtype)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire variable type. Input file ID:',iun,
+     $        ' Variable ID:',latid
+         call handle_err(ier,strerr)
+      endif
 
-      do j=1,nj
-         do i=1,ni
-            lat(i,j) = lat1d(j)
+      if (xtype .eq. NF_FLOAT) then
+         allocate ( lat1d(nj) )
+         ier = nf_get_var_real(iun, latid, lat1d)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $           ' Variable: latitude'
+            call handle_err(ier,strerr)
+         endif
+         do j=1,nj
+            do i=1,ni
+               lat(i,j) = lat1d(j)
+            enddo
          enddo
-      enddo
+         deallocate( lat1d )
+      else if (xtype .eq. NF_DOUBLE) then
+         allocate ( lat1dd(nj) )
+         ier = nf_get_var_double(iun, latid, lat1dd)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $           ' Variable: latitude'
+            call handle_err(ier,strerr)
+         endif
+         do j=1,nj
+            do i=1,ni
+               lat(i,j) = real(lat1dd(j))
+            enddo
+         enddo
+         deallocate( lat1dd )
+      else
+         write(strerr,*) 'gdll: variable type is not float or double. Input file ID:',iun,
+     $        ' Variable: latitude'
+      endif
+
+      print*, 'gdll: READ latitude successful'
       
-      allocate ( lon1d(ni) )
-      ier = nf_get_var_real(iun, dimids(1), lon1d)
+      ier = nf_inq_dimname(iun, dimids(1), lonname)
       if (ier .ne. nf_noerr) then
-         write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
-     $        ' Variable: longitude'
+         write(strerr,*) 'gdll: Cannot inquire dimension name. Input file ID:',iun,
+     $        ' Dimension ID:',dimids(1)
          call handle_err(ier,strerr)
       endif
+      ier = nf_inq_varid(iun, lonname, lonid)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire dimension variable ID. Input file ID:',iun,
+     $        ' Dimension variable name:',lonname
+         call handle_err(ier,strerr)
+      endif
+      ier = nf_inq_vartype(iun, lonid, xtype)
+      if (ier .ne. nf_noerr) then
+         write(strerr,*) 'gdll: Cannot inquire variable type. Input file ID:',iun,
+     $        ' Variable ID:',lonid
+         call handle_err(ier,strerr)
+      endif
+
+      if (xtype .eq. NF_FLOAT) then
+         allocate ( lon1d(ni) )
+         ier = nf_get_var_real(iun, lonid, lon1d)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $           ' Variable: longitude'
+            call handle_err(ier,strerr)
+         endif
+         do j=1,nj
+            do i=1,ni
+               lon(i,j) = lon1d(i)
+            enddo
+         enddo
+         deallocate( lon1d )
+      else if (xtype .eq. NF_DOUBLE) then
+         allocate ( lon1dd(ni*ni*ni) )
+         ier = nf_get_var_double(iun, lonid, lon1dd)
+         if (ier .ne. nf_noerr) then
+            write(strerr,*) 'gdll: Cannot read variable dimension. Input file ID:',iun,
+     $           ' Variable: longitude'
+            call handle_err(ier,strerr)
+         endif
+         do j=1,nj
+            do i=1,ni
+               lon(i,j) = real(lon1dd(i))
+            enddo
+         enddo
+         deallocate( lon1dd )
+      else
+         write(strerr,*) 'gdll: variable type is not float or double. Input file ID:',iun,
+     $        ' Variable: longitude'
+      endif
+
+
       print*, 'gdll: READ longitude successful'
 
 c     Wrap longitudes to positive (no negative values) if the 0 deg is within the domain.
       wrap = .false.
-      do i=1,ni
+      do j=1,nj
+         do i=1,ni
 c     If we have non-increasing longitudes, we assume we have 359 then 0.
-         if (lon1d(i).lt.0.0) then
-            wrap = .true.
-            exit
-         endif
+            if (lon(i,j).lt.0.0) then
+               wrap = .true.
+               exit
+            endif
+         enddo
       enddo
       if (wrap .eqv. .true.) then
 c     If longitude is greater than last one, must wrap it by 360 deg.
-         do i=1,ni
-            if (lon1d(i).lt.0.0) then
-               lon1d(i) = lon1d(i) + 360.0
-            endif
+         do j=1,nj
+            do i=1,ni
+               if (lon(i,j).lt.0.0) then
+                  lon(i,j) = lon(i,j) + 360.0
+               endif
+            enddo
          enddo
       endif
       
-      do j=1,nj
-         do i=1,ni
-            lon(i,j) = lon1d(i)
-         enddo
-      enddo
-
-      deallocate(lat1d)
-      deallocate(lon1d)
-
       gdll = 0
       
       return

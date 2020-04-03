@@ -43,10 +43,10 @@ RM = /data/softs/local/cmake/3.8.1/bin/cmake -E remove -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /scratch/globc/page/cyclone_tracking/json-fortran-6.9.0
+CMAKE_SOURCE_DIR = /data/home/globc/page/tracking/json-fortran-6.9.0
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /scratch/globc/page/cyclone_tracking/json-fortran
+CMAKE_BINARY_DIR = /data/home/globc/page/tracking/json-fortran
 
 # Utility rule file for uninstall.
 
@@ -54,7 +54,7 @@ CMAKE_BINARY_DIR = /scratch/globc/page/cyclone_tracking/json-fortran
 include CMakeFiles/uninstall.dir/progress.make
 
 CMakeFiles/uninstall:
-	/data/softs/local/cmake/3.8.1/bin/cmake -P /scratch/globc/page/cyclone_tracking/json-fortran/uninstall.cmake
+	/data/softs/local/cmake/3.8.1/bin/cmake -P /data/home/globc/page/tracking/json-fortran/uninstall.cmake
 
 uninstall: CMakeFiles/uninstall
 uninstall: CMakeFiles/uninstall.dir/build.make
@@ -71,6 +71,6 @@ CMakeFiles/uninstall.dir/clean:
 .PHONY : CMakeFiles/uninstall.dir/clean
 
 CMakeFiles/uninstall.dir/depend:
-	cd /scratch/globc/page/cyclone_tracking/json-fortran && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /scratch/globc/page/cyclone_tracking/json-fortran-6.9.0 /scratch/globc/page/cyclone_tracking/json-fortran-6.9.0 /scratch/globc/page/cyclone_tracking/json-fortran /scratch/globc/page/cyclone_tracking/json-fortran /scratch/globc/page/cyclone_tracking/json-fortran/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
+	cd /data/home/globc/page/tracking/json-fortran && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /data/home/globc/page/tracking/json-fortran-6.9.0 /data/home/globc/page/tracking/json-fortran-6.9.0 /data/home/globc/page/tracking/json-fortran /data/home/globc/page/tracking/json-fortran /data/home/globc/page/tracking/json-fortran/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/uninstall.dir/depend
 

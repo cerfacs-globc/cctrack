@@ -50,7 +50,7 @@ add_library(jsonfortran-static STATIC IMPORTED)
 # Import target "jsonfortran" for configuration "Release"
 set_property(TARGET jsonfortran APPEND PROPERTY IMPORTED_CONFIGURATIONS RELEASE)
 set_target_properties(jsonfortran PROPERTIES
-  IMPORTED_LOCATION_RELEASE "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.so.6.9.0"
+  IMPORTED_LOCATION_RELEASE "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.so.6.9.0"
   IMPORTED_SONAME_RELEASE "libjsonfortran.so.6.9"
   )
 
@@ -58,7 +58,7 @@ set_target_properties(jsonfortran PROPERTIES
 set_property(TARGET jsonfortran-static APPEND PROPERTY IMPORTED_CONFIGURATIONS RELEASE)
 set_target_properties(jsonfortran-static PROPERTIES
   IMPORTED_LINK_INTERFACE_LANGUAGES_RELEASE "Fortran"
-  IMPORTED_LOCATION_RELEASE "/scratch/globc/page/cyclone_tracking/json-fortran/lib/libjsonfortran.a"
+  IMPORTED_LOCATION_RELEASE "/data/home/globc/page/tracking/json-fortran/lib/libjsonfortran.a"
   )
 
 # This file does not depend on other imported targets which have

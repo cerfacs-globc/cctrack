@@ -16,7 +16,7 @@ if ( NOT ("GNU" MATCHES "${CMAKE_Fortran_COMPILER_ID}") )
 endif ( NOT ("GNU" MATCHES "${CMAKE_Fortran_COMPILER_ID}") )
 
 # Make targets available to be built
-include ( "/scratch/globc/page/cyclone_tracking/json-fortran/jsonfortran-gnu-targets.cmake" )
+include ( "/data/home/globc/page/tracking/json-fortran/jsonfortran-gnu-targets.cmake" )
 
 # Tell the compiler where to find the mod files
-set ( jsonfortran_INCLUDE_DIRS "/scratch/globc/page/cyclone_tracking/json-fortran/include" )
+set ( jsonfortran_INCLUDE_DIRS "/data/home/globc/page/tracking/json-fortran/include" )
