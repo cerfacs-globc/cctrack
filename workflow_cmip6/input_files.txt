@@ -1,0 +1,17 @@
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/psl/gr/v20190219/psl_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20150101-21001231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/zg/gr/v20190219/zg_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20150101-20391231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/zg/gr/v20190219/zg_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20400101-20641231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/zg/gr/v20190219/zg_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20650101-20891231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/zg/gr/v20190219/zg_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20900101-21001231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/va/gr/v20190219/va_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20150101-20341231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/va/gr/v20190219/va_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20350101-20541231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/va/gr/v20190219/va_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20550101-20741231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/va/gr/v20190219/va_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20750101-20941231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/va/gr/v20190219/va_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20950101-21001231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/ua/gr/v20190219/ua_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20150101-20341231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/ua/gr/v20190219/ua_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20350101-20541231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/ua/gr/v20190219/ua_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20550101-20741231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/ua/gr/v20190219/ua_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20750101-20941231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/ScenarioMIP/CNRM-CERFACS/CNRM-CM6-1/ssp585/r1i1p1f2/day/ua/gr/v20190219/ua_day_CNRM-CM6-1_ssp585_r1i1p1f2_gr_20950101-21001231.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/CMIP/CNRM-CERFACS/CNRM-CM6-1/amip/r1i1p1f2/fx/orog/gr/v20181203/orog_fx_CNRM-CM6-1_amip_r1i1p1f2_gr.nc
+http://esg1.umr-cnrm.fr/thredds/dodsC/CMIP6_CNRM/CMIP/CNRM-CERFACS/CNRM-CM6-1/amip/r1i1p1f2/fx/sftlf/gr/v20181203/sftlf_fx_CNRM-CM6-1_amip_r1i1p1f2_gr.nc
