@@ -112,8 +112,8 @@ lsm="sftlf"
 
 latmin="30.0"
 latmax="90.0"
-lonmin="345.0"
-lonmax="30.0"
+lonmin="10.0"
+lonmax="40.0"
 period_start_date="20500101"
 period_end_date="20691231"
 period=${period_start_date}-${period_end_date}
