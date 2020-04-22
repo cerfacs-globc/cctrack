@@ -154,6 +154,7 @@ python $EXTRACTDATA $list_sel_files $latmin $latmax $lonmin $lonmax $period_star
 cd $WORKDIR/data/results
 ls -l ${model}_${period}.nc ${orog}*.nc ${lsm}*.nc
 
+echo "Executing: $TRACKS -i ${model}_${period}.nc -i2 ${orog}*.nc -i3 ${lsm}*.nc -o tracks -getvar zg -configfile $configfile"
 $TRACKS -i ${model}_${period}.nc -i2 ${orog}*.nc -i3 ${lsm}*.nc -o tracks -getvar zg -configfile $configfile 
 
 python $XMLASCII tracks.xml tracks_${period}.txt
