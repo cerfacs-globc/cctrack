@@ -107,7 +107,7 @@ for f in allfiles:
      os.rename("results/tmp"+filb, "results/"+filb)
 
 # Combine all files into one
-dsmerged = xr.open_mfdataset(files, mask_and_scale=False, decode_times=True, decode_coords=True)
+dsmerged = xr.open_mfdataset(files, mask_and_scale=False, decode_times=True, decode_coords=True, combine='by_coords')
 print("Merging files into: "+"results/"+outfilenc)
 print(files)
 dsmerged.to_netcdf(path="results/"+outfilenc, mode='w', format='NETCDF4', unlimited_dims='time')
