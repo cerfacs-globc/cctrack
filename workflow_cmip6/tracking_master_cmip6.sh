@@ -111,28 +111,22 @@ zg1000="zg"
 lsm="sftlf"
 
 latmin="30.0"
-latmax="90.0"
+latmax="40.0"
 lonmin="10.0"
-lonmax="40.0"
+lonmax="20.0"
 period_start_date="20500101"
-period_end_date="20691231"
+period_end_date="20511231"
 period=${period_start_date}-${period_end_date}
 
 curdir=`pwd`
 
-configfile=$CONFIGFILE
+configfile="${curdir}/cyclone_config_CMIP6.json"
 out_file="tracks.txt"
 list_files="${curdir}/input_files.txt"
 list_sel_files="input_selected_files.txt"
 list_tracks="input_tracks.txt"
 
 rm -f $WORKDIR/data/results/$list_tracks
-
-# Get model name
-#
-line=`grep ${psl}_ ${list_files} | head -n 1`
-filename=`basename $line`
-model=`echo $filename | awk 'BEGIN {FS="_"} {print $3}'`
 
 # From list of files provided, check that all needed input data is provided, and select needed files according to time period
 #
@@ -152,16 +146,20 @@ python $EXTRACTDATA $list_sel_files $latmin $latmax $lonmin $lonmax $period_star
 # Calculate tracks
 #
 cd $WORKDIR/data/results
+
+line=`grep ${psl}_ ${list_files} | head -n 1`
+filename=`basename $line`
+model=`echo $filename | awk 'BEGIN {FS="_"} {print $3}'`
+
 ls -l ${model}_${period}.nc ${orog}*.nc ${lsm}*.nc
 
-echo "Executing: $TRACKS -i ${model}_${period}.nc -i2 ${orog}*.nc -i3 ${lsm}*.nc -o tracks -getvar zg -configfile $configfile"
 $TRACKS -i ${model}_${period}.nc -i2 ${orog}*.nc -i3 ${lsm}*.nc -o tracks -getvar zg -configfile $configfile 
 
 python $XMLASCII tracks.xml tracks_${period}.txt
 
 rm -f $warmstart
 
-#Create file warmstart.txt to start next tracking in "Mode Warmstart"
+# Create file warmstart.txt to start next tracking in "Mode Warmstart"
 #
  
 d=`awk 'END {print $7}' tracks_${period}.txt`
