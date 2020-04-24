@@ -1712,13 +1712,15 @@ c     Expected dimensions order with ncdump for 2D matrix: float psl(time, lat, 
 c     If 3D matrix we have float ta(time, lev, lat, lon) !!is reversed!! in fortran
 c
       print*,"NETCDF READING VARIABLE=",nomvar
-
+      print*,'AA'
       ier = nf_inq_varid(iun, nomvar, varid)
+      print*,'AA'
       if (ier .ne. nf_noerr) then
          write(strerr,*) 'read_field: Cannot read variable ID of variable: ',
      $        nomvar(1:real_len(nomvar)),' from input file ID:',iun
          call handle_err(ier,strerr)
       endif
+      print*,'AA'
 
       ier = nf_inq_vartype(iun, varid, vartype)
       if (ier .ne. nf_noerr) then
