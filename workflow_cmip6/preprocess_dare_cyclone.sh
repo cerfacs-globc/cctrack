@@ -7,13 +7,18 @@ then
   RUN_DIR=$$
 fi
 
-cd /home/mpiuser/sfs/
-mkdir -p d4p
+if [ ! -d /home/mpiuser/sfs ]
+then
+  mkdir -p /home/mpiuser/sfs
+fi
 
-cd /home/mpiuser/sfs/d4p
+cd /home/mpiuser/sfs/
+mkdir -p cyclone
+
+cd /home/mpiuser/sfs/cyclone
 mkdir -p $RUN_DIR
 
-WORKDIR="/home/mpiuser/sfs/d4p/${RUN_DIR}"
+WORKDIR="/home/mpiuser/sfs/cyclone/${RUN_DIR}"
 
 tar -cf - -C /home/mpiuser/docker . | tar -xpf - -C ${WORKDIR}/.
 
