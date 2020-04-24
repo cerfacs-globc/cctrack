@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+set -e
+
+if [ -z "${RUN_DIR}" ]
+then
+  RUN_DIR=$$
+fi
+
+cd /home/mpiuser/sfs/
+mkdir -p d4p
+
+cd /home/mpiuser/sfs/d4p
+mkdir -p $RUN_DIR
+
+WORKDIR="/home/mpiuser/sfs/d4p/${RUN_DIR}"
+
+tar -cf - -C /home/mpiuser/docker . | tar -xpf - -C ${WORKDIR}/.
+
+cd $WORKDIR
+
+OUTDIR="output"
+mkdir -p ${OUTDIR}
+
+bash -vx ${WORKDIR}/tracking/workflow_cmip6/tracking_master_cmip6.sh ${WORKDIR}/tracking/workflow_cmip6 ${WORKDIR}/${OUTDIR} ${WORKDIR}/tracking/workflow_cmip6/cyclone_config_CMIP6.json
+
