@@ -120,7 +120,7 @@ period=${period_start_date}-${period_end_date}
 
 curdir=`pwd`
 
-configfile="${curdir}/cyclone_config_CMIP6.json"
+configfile=$CONFIGFILE
 out_file="tracks.txt"
 list_files="${curdir}/input_files.txt"
 list_sel_files="input_selected_files.txt"
