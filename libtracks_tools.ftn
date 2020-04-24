@@ -1751,9 +1751,7 @@ c
             count(4) = 1
          endif
          if (vartype.eq.NF_FLOAT) then
-            print*,"AA"
             ier = nf_get_vara_real(iun, varid, start, count, buffer)
-            print*,"AA"
          else if (vartype.eq.NF_INT) then
             allocate ( bufferint(ni,nj) )
             ier = nf_get_vara_int(iun, varid, start, count, bufferint)
@@ -1783,18 +1781,22 @@ c
      $           nomvar(1:real_len(nomvar)),' from input file ID:',iun
             call handle_err(ier,strerr)
          endif
+            print*,"AA"
 
 c     Apply offset and scale factor if provided
          ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
          if (ier .ne. nf_noerr) then
             scale_factor = 1.0
          endif
+            print*,"AA"
          ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
          if (ier .ne. nf_noerr) then
             add_offset = 0.0
          endif
+            print*,"AA"
          call gdmpcn(buffer, buffer, scale_factor, ni, nj, 0)
          call gdadcn(buffer, buffer, add_offset, ni, nj, 0)
+            print*,"AA"
 
       else
          print*
@@ -1803,7 +1805,9 @@ c     Apply offset and scale factor if provided
          stop
       endif
       
+            print*,"AA"
       call gdmpcn(buffer, buffer, fm, ni, nj, 0)
+            print*,"AA"
       
       return
       end
