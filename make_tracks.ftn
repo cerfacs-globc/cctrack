@@ -616,7 +616,6 @@
       ier = gdll(gdid, LAT, LON)
 #else
       ier = gdll(LAT, LON, LATNAME, LONNAME, iun01, glbkey, ni, nj)
-      print*,'ni,nj!!',ni,nj
 #endif
 
 #ifndef NETCDF
@@ -1132,7 +1131,7 @@ c     On evalue la distance entre les points de grille
          print*,"BB"
          if (tropic .lt. 0 .and. phase .lt. 0) then
             call get_config(curn, config, "height_1000", nconfig)
-         print*,"BB",ni,nj
+         print*,"BB",ni,nj,n,iun01,config(curn)%name, config(curn)%scale, config(curn)%level
             call read_field(H,n,iun01,
      $           config(curn)%name, config(curn)%scale, config(curn)%level, ! m converted to geopot height and dam
      $           ni,nj)
