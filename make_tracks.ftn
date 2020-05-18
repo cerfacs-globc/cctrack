@@ -1127,12 +1127,14 @@ c     On evalue la distance entre les points de grille
          call get_config(curn, config, "mean_slp", nconfig)
          call read_field(PRESS,n,iun01,
      $        config(curn)%name, config(curn)%scale, config(curn)%level,ni,nj) ! Pa converted to hPa
-
+         print*,"BB"
          if (tropic .lt. 0 .and. phase .lt. 0) then
             call get_config(curn, config, "height_1000", nconfig)
+         print*,"BB"
             call read_field(H,n,iun01,
      $           config(curn)%name, config(curn)%scale, config(curn)%level, ! m converted to geopot height and dam
      $           ni,nj)
+         print*,"BB"
          else
             call get_config(curn, config, "height_250", nconfig)
             call read_field(work1,n,iun01,
