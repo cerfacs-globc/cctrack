@@ -616,6 +616,7 @@
       ier = gdll(gdid, LAT, LON)
 #else
       ier = gdll(LAT, LON, LATNAME, LONNAME, iun01, glbkey, ni, nj)
+      print*,'ni,nj!!',ni,nj
 #endif
 
 #ifndef NETCDF
@@ -1124,6 +1125,7 @@ c     On evalue la distance entre les points de grille
      $           ni,nj)
          endif
 #else
+         print*,'ni,nj',ni,nj
          call get_config(curn, config, "mean_slp", nconfig)
          call read_field(PRESS,n,iun01,
      $        config(curn)%name, config(curn)%scale, config(curn)%level,ni,nj) ! Pa converted to hPa
