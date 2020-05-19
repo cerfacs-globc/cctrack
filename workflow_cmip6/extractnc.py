@@ -57,6 +57,7 @@ for f in allfiles:
 
    f = f.rstrip()
    dset = xr.open_dataset(f, mask_and_scale=False, decode_times=True, decode_coords=True)
+   del dset.attrs['_NCProperties']
 
    filb = f.rsplit('/', 1)[-1]
    params = filb.split('_',-1)
