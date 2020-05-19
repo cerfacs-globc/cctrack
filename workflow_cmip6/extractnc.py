@@ -58,7 +58,7 @@ for f in allfiles:
    f = f.rstrip()
    dset = xr.open_dataset(f, mask_and_scale=False, decode_times=True, decode_coords=True)
    del dset.attrs['_NCProperties']
-   
+
    filb = f.rsplit('/', 1)[-1]
    params = filb.split('_',-1)
    var = params[0]
@@ -108,7 +108,7 @@ for f in allfiles:
      os.rename("results/tmp"+filb, "results/"+filb)
 
 # Combine all files into one
-dsmerged = xr.open_mfdataset(files, mask_and_scale=False, decode_times=True, decode_coords=True)
+dsmerged = xr.open_mfdataset(files, mask_and_scale=False, decode_times=True, decode_coords=True, combine='by_coords')
 print("Merging files into: "+"results/"+outfilenc)
 print(files)
 dsmerged.to_netcdf(path="results/"+outfilenc, mode='w', format='NETCDF4', unlimited_dims='time')
