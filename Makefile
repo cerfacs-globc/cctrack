@@ -1,11 +1,13 @@
 LIBDIR=/opt/local/lib
 INCDIR=/opt/local/include
-DATETIMELIBDIR=./lib
-DATETIMEINCDIR=./include
+DATETIMELIBDIR=./datetime-fortran/build/lib
+DATETIMEINCDIR=./datetime-fortran/build/include
 UDUNITSLIBDIR=/opt/local/lib
 UDUNITSINCDIR=/opt/local/include/udunits2
+JSONFORTRAN=./json-fortran/build
 DESTLIBDIR=.
 BINDIR=../bin
+SRCDIR=$(PWD)
 
 FORTRAN=gfortran
 CC=gcc
@@ -18,7 +20,7 @@ CFLAGS=-O2 -g
 
 make_tracks.abs: make_tracks.ftn libtracks.a libtracks_tools.a libstd_nc.a tracks_cte.h
 	mkdir -p $(BINDIR)
-	$(FORTRAN) make_tracks.ftn $(OPTFLAGS) -o $(BINDIR)/make_tracks.abs -L$(DESTLIBDIR) -L$(LIBDIR) -L$(DATETIMELIBDIR) -L$(UDUNITSLIBDIR) -I. -I$(INCDIR) -I$(DATETIMEINCDIR) -I$(UDUNITSINCDIR) get_calendar.o -ltracks -ltracks_tools -lstd_nc -l$(NETCDF) -ldatetime -ludunits2
+	$(FORTRAN) make_tracks.ftn $(OPTFLAGS) -o $(BINDIR)/make_tracks.abs -L$(DESTLIBDIR) -L$(LIBDIR) -L$(DATETIMELIBDIR) -L$(UDUNITSLIBDIR) -L$(JSONFORTRAN)/lib -I. -I$(INCDIR) -I$(DATETIMEINCDIR) -I$(UDUNITSINCDIR) -I$(JSONFORTRAN)/include get_calendar.o -ltracks -ltracks_tools -lstd_nc -l$(NETCDF) -ldatetime -ludunits2 -ljsonfortran
 	rm -f make_tracks.o
 
 libtracks.a: libtracks.ftn tracks_cte.h libtracks.o
@@ -53,7 +55,7 @@ get_calendar.o: get_calendar.c
 	$(FORTRAN) $(OPTFLAGS) -c $< -o $@
 
 .ftn.o:
-	$(FORTRAN) $(OPTFLAGS) -I. -I$(INCDIR) -I$(DATETIMEINCDIR) -c $< -o $@
+	$(FORTRAN) $(OPTFLAGS) -I. -I$(INCDIR) -I$(DATETIMEINCDIR) -I$(JSONFORTRAN) -c $< -o $@
 
 .c.o:
 	$(CC) $(CFLAGS) -I. -I$(INCDIR) -c $< -o $@
