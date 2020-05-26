@@ -19,15 +19,14 @@ va500 = sys.argv[11]
 orog = sys.argv[12]
 lsm = sys.argv[13]
 
-
 f = open(input_file,"r")
 allfiles=f.readlines()
 
 for f in allfiles:
   f.rstrip()
-  filb = f.rsplit('/', 1)[-1]
-  filbs = filb.strip('.nc')
-  params = filbs.split('_',-1)
+  fb = f.rsplit('/', 1)[-1]
+  fbs = fb.strip('.nc')
+  params = fbs.split('_',-1)
   varname = params[0]
 
   if varname == psl:    
@@ -56,14 +55,17 @@ files = []
 for f in allfiles:
 
    f = f.rstrip()
+   print(f)
    dset = xr.open_dataset(f, mask_and_scale=False, decode_times=True, decode_coords=True)
    try:
      del dset.attrs['_NCProperties']
+   except:
+     pass
 
-   filb = f.rsplit('/', 1)[-1]
-   params = filb.split('_',-1)
+   fb = f.rsplit('/', 1)[-1]
+   params = fb.split('_',-1)
    var = params[0]
-
+   print(var)
    if minlon > maxlon or minlon < 0:
      if var == ua500 or var == va500 or var == zg1000 :
        level=500.0
@@ -81,32 +83,45 @@ for f in allfiles:
      else :
        dset = dset.sel(lon=slice(minlon,maxlon), lat=slice(minlat,maxlat))
 
-   print("Saving to: "+"results/"+filb)
+   print("Saving to: "+"results/"+fb)
    dims = dset.dims
    dimsf = {k: v for k, v in dims.items() if k.startswith('lat') or k.startswith('lon') or k.startswith('time')}
    enc = dict(dimsf)
-   enc = dict.fromkeys(enc, {'_FillValue': False})
+   enc = dict.fromkeys(enc, {'_FillValue': None})
 
    if var == orog or var == lsm :
-      fb = f.rsplit('/', 1)[-1]
-      dset.to_netcdf(path="results/"+filb, mode='w', format='NETCDF4', encoding=enc)
+      dset.to_netcdf(path="results/"+fb, mode='w', format='NETCDF4', encoding=enc)
    else:
-      files.append("results/"+filb)
-      dset.to_netcdf(path="results/"+filb, mode='w', format='NETCDF4', unlimited_dims='time', encoding=enc)
+      files.append("results/"+fb)
+      dset.to_netcdf(path="results/"+fb, mode='w', format='NETCDF4', unlimited_dims='time', encoding=enc)
+      tunits = dset.time.encoding['units']
 
    dset.close()
+   del dset
 
 # Reorder longitudes if needed, and subset longitudes in that specific case differently (need to do it on local file for reasonable performance)
    if minlon > maxlon or minlon < 0:
      print("Subsetting for non-contiguous longitude")
-     dsetl = xr.open_dataset("results/"+filb, mask_and_scale=False, decode_times=True, decode_coords=True)
+     dsetl = xr.open_dataset("results/"+fb, mask_and_scale=False, decode_times=True, decode_coords=True)
      saveattrs = dsetl.lon.attrs
-     dsetl = dsetl.sel(lon=(dset.lon <= maxlon) | (dset.lon >= minlon))
-     dsetl = dsetl.assign_coords(lon=(((dsetl.lon + 180) % 360) - 180)).roll(lon=(-dsetl.lon.searchsorted(minlon)), roll_coords=True)
+#     dsetl = dsetl.assign_coords(lon=(((dsetl.lon + 180) % 360) - 180)).roll(lon=(-dsetl.lon.searchsorted(minlon)), roll_coords=True)
+#     dsetl = dsetl.assign_coords(lon=(dsetl.lon % 360)).roll(lon=(dsetl.dims['lon'] // 2))
+     dsetl = dsetl.assign_coords(lon=(((dsetl.lon + 180) % 360) - 180)).roll(lon=(dsetl.dims['lon'] // 2), roll_coords=True)
+     if minlon >= 180:
+       minlon = minlon - 360
+     if maxlon >= 180:
+       maxlon = maxlon - 360
+     dsetl = dsetl.sel(lon=slice(minlon,maxlon))
+     #     dsetl = dsetl.sel(lon=(dset.lon <= maxlon) | (dset.lon >= minlon))
      dsetl.lon.attrs = saveattrs
-     dsetl.to_netcdf(path="results/tmp"+filb, mode='w', format='NETCDF4', unlimited_dims='time', encoding=enc)
+     if var == orog or var == lsm :
+       dsetl.to_netcdf(path="results/tmp"+fb, mode='w', format='NETCDF4', encoding=enc)
+     else :
+       dsetl.time.encoding['units'] = tunits
+       dsetl.to_netcdf(path="results/tmp"+fb, mode='w', format='NETCDF4', unlimited_dims='time', encoding=enc)
      dsetl.close()
-     os.rename("results/tmp"+filb, "results/"+filb)
+     del dsetl
+     os.rename("results/tmp"+fb, "results/"+fb)
 
 # Combine all files into one
 dsmerged = xr.open_mfdataset(files, mask_and_scale=False, decode_times=True, decode_coords=True, combine='by_coords')
