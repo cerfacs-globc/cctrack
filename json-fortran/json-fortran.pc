@@ -1,9 +1,0 @@
-libdir=
-includedir=
-
-Name: json-fortran
-Description: A Fortran 2008 JSON API
-URL: https://github.com/jacobwilliams/json-fortran
-Version: 6.9.0
-Libs: -L${libdir} -ljsonfortran
-Cflags: -I${includedir}

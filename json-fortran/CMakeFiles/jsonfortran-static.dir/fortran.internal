@@ -1,8 +1,0 @@
-# The fortran modules provided by this target.
-provides
- json_file_module
- json_kinds
- json_module
- json_parameters
- json_string_utilities
- json_value_module
