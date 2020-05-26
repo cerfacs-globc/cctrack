@@ -1783,15 +1783,21 @@ c
          endif
 
 c     Apply offset and scale factor if provided
+         print*,"AA"
          ier = nf_get_att_real(iun, varid, 'scale_factor', scale_factor)
+         print*,"AA"
          if (ier .ne. nf_noerr) then
             scale_factor = 1.0
          endif
+         print*,"AA"
          ier = nf_get_att_real(iun, varid, 'add_offset', add_offset)
+         print*,"AA"
          if (ier .ne. nf_noerr) then
             add_offset = 0.0
          endif
+         print*,"AA"
          call gdmpcn(buffer, buffer, scale_factor, ni, nj, 0)
+         print*,"AA"
          call gdadcn(buffer, buffer, add_offset, ni, nj, 0)
 
       else
