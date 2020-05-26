@@ -1,0 +1,18 @@
+# Compiled Object files
+*.lo
+*.o
+*.obj
+
+# Compiled Dynamic libraries
+*.so
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.la
+*.a
+*.lib
+
+# Executables
+*.abs
