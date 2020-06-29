@@ -2857,7 +2857,7 @@ c     Grille coeur - copier-coller
       enddo
 
 c     Extension Ouest
-      do j=ext_j+1,njext_j-ext_j
+      do j=ext_j+1,njext-ext_j
         do i=ext_i,1,-1
             grad=bufext(ext_i+2,j)-bufext(ext_i+1,j)
             gradm=(pp_i*i+bp_i)*grad
@@ -2959,7 +2959,7 @@ c     Extension Sud-Est
 c     a) extension sud
       icnt = niext-ext_i+1
       do i=niext-ext_i+1,niext
-         do j=ext_j-(icnt-(niext-ext_i+1)),ext
+         do j=ext_j-(icnt-(niext-ext_i+1)),ext_j
             jext=ext_j+2+(ext_j-j)
             bufext(i,j)=bufext(i,jext)
          enddo
