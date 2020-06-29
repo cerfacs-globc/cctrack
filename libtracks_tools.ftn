@@ -2857,7 +2857,7 @@ c     Grille coeur - copier-coller
       enddo
 
 c     Extension Ouest
-      do j=ext_j+1,njext_j-ext
+      do j=ext_j+1,njext_j-ext_j
         do i=ext_i,1,-1
             grad=bufext(ext_i+2,j)-bufext(ext_i+1,j)
             gradm=(pp_i*i+bp_i)*grad
