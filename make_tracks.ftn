@@ -1223,7 +1223,7 @@ c     On evalue la distance entre les points de grille
          srad = float(fvort) * 1.E3
          if ( srad .gt. 0 ) then
             if ( global .eq. 0 ) then ! LAM
-               call extend(BUFEXT, vort, ni, nj, niext, njext)
+               call extend_lam(BUFEXT, vort, ni, nj, niext, njext)
 !     call ecrit_fst(iun51,bufext,'QR','VORT_EXT',level,ip2,
 !     $               npas,dateo,niext,njext,ig1ext,ig2ext,ig3ext,ig4ext,ip3,
 !     $               grtyp,typvar,deet)

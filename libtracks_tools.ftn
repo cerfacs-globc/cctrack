@@ -2815,6 +2815,169 @@ c     b) extension est
       end
 
 c***********************************************************************
+c---- Sous-routine EXTEND                                            ---
+c***********************************************************************
+      subroutine extend_lam(bufext,bufsrc,ni,nj,niext,njext)
+      implicit none
+
+c     ----------------------------------------------------------
+c     Ecrite par Christian Page - Juin 2020
+c     ----------------------------------------------------------
+
+      integer niext,njext,ni,nj,ext_i,ext_j
+      real bufext(niext,njext),bufsrc(ni,nj),grad,val,gradm
+      real pp_i,pp_j,bp_i,bp_j,pn_i,pn_j,bn_i,bn_j
+      integer i,j,iext,jext,icnt,jcnt
+
+c     Extension par extrapolation
+      ext_i=(niext-ni)/2
+      ext_j=(njext-nj)/2
+
+c     Variables pour la variation lineaire du gradient de 0 a 1
+c     pente negative (gradient diminue avec i ou j)
+      pn_i=-1.0/(ext_i-1.0)
+      bn_i=-ext_i*pn_i
+c     pente positive (gradient augmente avec i ou j)
+      pp_i=1.0/(ext_i-1.0)
+      bp_i=-1.0*pp_i
+
+c     Variables pour la variation lineaire du gradient de 0 a 1
+c     pente negative (gradient diminue avec i ou j)
+      pn_j=-1.0/(ext_j-1.0)
+      bn_j=-ext_j*pn_j
+c     pente positive (gradient augmente avec i ou j)
+      pp_j=1.0/(ext_j-1.0)
+      bp_j=-1.0*pp_j
+
+c     Grille coeur - copier-coller 
+      do j=1,nj
+         do i=1,ni
+            bufext(i+ext_i,j+ext_j)=bufsrc(i,j)
+         enddo
+      enddo
+
+c     Extension Ouest
+      do j=ext_j+1,njext_j-ext
+        do i=ext_i,1,-1
+            grad=bufext(ext_i+2,j)-bufext(ext_i+1,j)
+            gradm=(pp_i*i+bp_i)*grad
+            val=bufext(i+1,j)-gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Est
+      do j=ext_j+1,njext-ext_j
+         do i=niext-ext_i+1,niext
+            grad=bufext(niext-ext_i,j)-bufext(niext-ext_i-1,j)
+            gradm=(pn_i*(i-(niext-ext_i))+bn_i)*grad
+            val=bufext(i-1,j)+gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Sud
+      do j=ext_j,1,-1
+         do i=ext_i+1,niext-ext_i
+            grad=bufext(i,ext_j+2)-bufext(i,ext_j+1)
+            gradm=(pp_j*j+bp_j)*grad
+            val=bufext(i,j+1)-gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Nord
+      do j= njext-ext_j+1,njext
+         do i= ext_j+1,niext-ext_j
+            grad=bufext(i,njext-ext_j)-bufext(i,njext-ext_j-1)
+            gradm=(pn_j*(j-(njext-ext_j))+bn_j)*grad
+            val=bufext(i,j-1)+gradm
+            bufext(i,j)=val
+         enddo
+      enddo
+
+c     Extension Sud-Ouest
+c     a) extension ouest
+      icnt = 1
+      do j=1,ext_j
+         do i=icnt,ext_i
+            iext=ext_i+2+(ext_i-i)
+            bufext(i,j)=bufext(iext,j)
+         enddo
+         icnt = icnt + 1
+      enddo
+c     b) extension sud
+      jcnt = 1
+      do i=1,ext_i
+         do j=jcnt,ext_j
+            jext=ext_j+2+(ext_j-j)
+            bufext(i,j)=bufext(i,jext)
+         enddo
+         jcnt = jcnt + 1
+      enddo
+c     Extension Nord-Est
+c     a) extension nord
+      jcnt = njext-ext_j+1
+      do i= niext-ext_i+1,niext
+         do j=njext-ext_j+1,njext-ext_j+1+(jcnt-(njext-ext_j+1))
+            jext=njext-ext_j-(j-(njext-ext_j))
+            bufext(i,j)=bufext(i,jext)
+         enddo
+         jcnt = jcnt + 1
+      enddo
+c     b) extension est
+      icnt = niext-ext_i+1
+      do j=njext-ext_j+1,njext
+         do i=niext-ext_i+1,niext-ext_i+1+(icnt-(njext-ext_i+1))
+            iext=niext-ext_i-(i-(niext-ext_i))
+            bufext(i,j)=bufext(iext,j)
+         enddo
+         icnt = icnt + 1
+      enddo
+
+c     Extension Nord-Ouest
+c     a) extension nord
+      icnt = 1
+      do i= 1,ext_i
+         do j=njext-ext_j+1,njext-ext_j+1+(ext_j-icnt)
+            jext=njext-ext_j-(j-(njext-ext_j))
+            bufext(i,j)=bufext(i,jext)
+         enddo
+         icnt = icnt + 1
+      enddo
+c     b) extension ouest
+      jcnt = njext-ext_j+1
+      do j=njext-ext_j+1,njext
+         do i=ext_i-(jcnt-(njext-ext_i+1)),ext_i
+            iext=ext_i+2+(ext_i-i)
+            bufext(i,j)=bufext(iext,j)
+         enddo
+         jcnt = jcnt + 1
+      enddo
+
+c     Extension Sud-Est
+c     a) extension sud
+      icnt = niext-ext_i+1
+      do i=niext-ext_i+1,niext
+         do j=ext_j-(icnt-(niext-ext_i+1)),ext
+            jext=ext_j+2+(ext_j-j)
+            bufext(i,j)=bufext(i,jext)
+         enddo
+         icnt = icnt + 1
+      enddo
+c     b) extension est
+      jcnt = 1
+      do j=1,ext_j
+         do i=niext-ext_i+1,niext-(jcnt-1)
+            iext=niext-ext_i-(i-(niext-ext_i))
+            bufext(i,j)=bufext(iext,j)
+         enddo
+         jcnt = jcnt + 1
+      enddo
+      return
+      end
+
+c***********************************************************************
 c---- Sous-routine EXTEND_GLB                                        ---
 c***********************************************************************
       subroutine extend_glb(bufext, bufsrc, global, ni, nj, niext)
